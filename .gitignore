@@ -1,0 +1,6 @@
+images/
+saved_imgs/
+__pycache__/
+
+*.docx
+.DS_Store
