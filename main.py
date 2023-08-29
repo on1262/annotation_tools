@@ -193,7 +193,16 @@ class AnnotationTool():
         else:
             print('注意：该图片还没有保存过标注信息, 无法打开观察模式')
 
-        
+    def select_img(self, new_index):
+        # 在复制前关闭watch mode
+        last_watch_mode = self.watch_mode
+        self.turn_off_watch_mode()
+        self.img_cache[self.img_index] = self.real_img.copy()
+        self.img_index = new_index
+        self.init_imgs(self.img_index)
+        if last_watch_mode:
+            self.turn_on_watch_mode()
+
     def keyboard_callback(self):
         while(1):
             key = cv2.waitKey(0)
@@ -211,20 +220,20 @@ class AnnotationTool():
                     self.turn_on_watch_mode()
                 else:
                     self.turn_off_watch_mode()
-
             elif key == ord('a') or key == ord('d'):
-                # 在复制前关闭watch mode
-                last_watch_mode = self.watch_mode
-                self.turn_off_watch_mode()
-                self.img_cache[self.img_index] = self.real_img.copy()
-                if key == ord('d'):
-                    self.img_index = min(self.img_index + 1, len(self.img_paths) - 1)
+                if key == ord('a'):
+                    new_index = max(0, self.img_index - 1)
                 else:
-                    self.img_index = max(0, self.img_index - 1)
-                self.init_imgs(self.img_index)
-
-                if last_watch_mode:
-                    self.turn_on_watch_mode()
+                    new_index = min(self.img_index + 1, len(self.img_paths) - 1)
+                if new_index != self.img_index:
+                    self.select_img(new_index)
+            elif key == ord('-') or key == ord('='):
+                if key == ord('-'):
+                    new_index = max(0, self.img_index - 10)
+                else:
+                    new_index = min(self.img_index + 10, len(self.img_paths) - 1)
+                if new_index != self.img_index:
+                    self.select_img(new_index)   
             elif key == ord('s'):
                 last_watch_mode = self.watch_mode
                 self.turn_off_watch_mode()
@@ -246,10 +255,9 @@ class AnnotationTool():
             self.saved_flag[self.img_index] = True
         else:
             print(f'注意：保存{self.save_paths[self.img_index]}时出现错误')
-        print(f'已保存{self.save_paths[self.img_index]}')
+        print(f'已保存[{self.img_index+1}/{len(self.img_paths)}]{self.save_paths[self.img_index]}')
 
 # 调用主函数
 if __name__ == "__main__":
     tool = AnnotationTool()
-    
-    
+
