@@ -1,8 +1,18 @@
 import cv2
-import os
+import os, yaml
+
+class Configs():
+    def __init__(self) -> None:
+        with open('configs.yml', 'r') as fp:
+            self.conf = yaml.load(fp, Loader=yaml.FullLoader)
+    
+    def __getitem__(self, index):
+        return self.conf[index]
+
 
 class AnnotationTool():
-    def __init__(self) -> None:
+    def __init__(self, conf) -> None:
+        self.conf = conf
         self.img_names = sorted([p for p in os.listdir("images") if p.endswith('.jpg')])
         self.img_paths = [os.path.join('images', p) for p in self.img_names]
         self.img_cache = {}
@@ -156,10 +166,11 @@ class AnnotationTool():
         if event == cv2.EVENT_MOUSEWHEEL:
             xm, ym = self.last_mouse_xy
             newscale = 1.0
-            if y > 0:
-                newscale = min(self.scale * 1.2, 5.0)
-            elif y < 0:
-                newscale = max(self.scale * 0.8, 1.0)
+            flag = self.conf['reverse_mouse_wheel']
+            if (flag and y < 0) or ((not flag) and y > 0):
+                newscale = min(self.scale * self.conf['wheel_zoom_factor'][1], self.conf['scale_range'][1])
+            elif y != 0:
+                newscale = max(self.scale * self.conf['wheel_zoom_factor'][0], self.conf['scale_range'][0])
             self.rescale_window(xm, ym, self.scale, newscale)
             self.draw_circle(xm, ym)
             self.scale = newscale
@@ -185,7 +196,7 @@ class AnnotationTool():
             s_img = cv2.imread(self.save_paths[self.img_index])
             origin_img = cv2.imread(self.img_paths[self.img_index])
             # 将该图层与原图叠加
-            self.real_img = cv2.addWeighted(origin_img, 0.7, s_img, 0.3, 0)
+            self.real_img = cv2.addWeighted(origin_img, 1-self.conf['watch_mode_alpha'], s_img, self.conf['watch_mode_alpha'], 0)
             h, w = self.real_img.shape[:2]
             self.rescale_window(w//2, h//2, 1.0, self.scale)
             cv2.setWindowTitle(self.unique_name, self.img_title())
@@ -259,5 +270,6 @@ class AnnotationTool():
 
 # 调用主函数
 if __name__ == "__main__":
-    tool = AnnotationTool()
+    conf = Configs()
+    tool = AnnotationTool(conf['image_annotation'])
 

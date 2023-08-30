@@ -1,0 +1,11 @@
+---
+# 图像标注软件的配置文件
+image_annotation: 
+  # 是否反转鼠标滚轮的方向
+  reverse_mouse_wheel: true
+  # 滚轮放大缩小的倍数
+  wheel_zoom_factor: [0.8, 1.2]
+  # 滚轮放大缩小的最大最小倍数
+  scale_range: [1.0, 5.0]
+  # watch mode下叠加标记的透明度（0-1）
+  watch_mode_alpha: 0.25
