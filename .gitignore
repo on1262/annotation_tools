@@ -1,6 +1,7 @@
 images/
 saved_imgs/
 __pycache__/
+.vscode/
 
 *.docx
 .DS_Store
