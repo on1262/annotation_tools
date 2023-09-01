@@ -1,9 +1,14 @@
 import cv2
 import os, yaml
+import platform
+
+
+isWin = platform.system() == 'Windows'
+isMacOS = platform.system() == 'Darwin'
 
 class Configs():
     def __init__(self) -> None:
-        with open('configs.yml', 'r') as fp:
+        with open('configs.yml', 'r', encoding='utf-8') as fp:
             self.conf = yaml.load(fp, Loader=yaml.FullLoader)
     
     def __getitem__(self, index):
@@ -37,8 +42,14 @@ class AnnotationTool():
         self.drawing = False
         # watch mode
         self.watch_mode = False
-
-        cv2.namedWindow(self.unique_name, cv2.WINDOW_AUTOSIZE)
+        
+        cv2.namedWindow(self.unique_name, cv2.WINDOW_NORMAL)
+        if isWin:
+            win_scale = self.conf['init_resize']['windows']
+        elif isMacOS:
+            win_scale = self.conf['init_resize']['macOS']
+        wh, ww = round(win_scale * 1080), round(win_scale * 1920)
+        cv2.resizeWindow(self.unique_name, ww, wh)
         self.init_imgs(self.img_index)
         self.keyboard_callback()
 
@@ -167,6 +178,8 @@ class AnnotationTool():
             xm, ym = self.last_mouse_xy
             newscale = 1.0
             flag = self.conf['reverse_mouse_wheel']
+            if isWin:
+                y = 1 if flags > 0 else -1
             if (flag and y < 0) or ((not flag) and y > 0):
                 newscale = min(self.scale * self.conf['wheel_zoom_factor'][1], self.conf['scale_range'][1])
             elif y != 0:
