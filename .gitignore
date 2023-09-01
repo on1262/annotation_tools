@@ -3,6 +3,8 @@ saved_imgs/
 __pycache__/
 .vscode/
 
+*.jpg
 *.docx
 .DS_Store
+*.zip
 log.txt

@@ -1,5 +1,5 @@
 import cv2
-import os, yaml
+import os, yaml, vlc
 
 class Configs():
     def __init__(self) -> None:
@@ -10,7 +10,11 @@ class Configs():
         return self.conf[index]
 
 
-class AnnotationTool():
+class VideoAnnotation():
+    def __init__(self) -> None:
+        pass
+
+class ImageAnnotation():
     def __init__(self, conf) -> None:
         self.conf = conf
         self.img_names = sorted([p for p in os.listdir("images") if p.endswith('.jpg')])
@@ -271,5 +275,5 @@ class AnnotationTool():
 # 调用主函数
 if __name__ == "__main__":
     conf = Configs()
-    tool = AnnotationTool(conf['image_annotation'])
+    tool = ImageAnnotation(conf['image_annotation'])
 
