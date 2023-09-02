@@ -1,6 +1,6 @@
 from ast import arg
 from image_annotation import ImageAnnotation
-from video_annotation import VideoAnnotation
+from video_annotation import start_video_annotation
 import argparse
 
 # 调用主函数
@@ -11,5 +11,5 @@ if __name__ == "__main__":
     if args.type == 'image':
         tool = ImageAnnotation()
     elif args.type == 'video':
-        tool = VideoAnnotation()
+        start_video_annotation()
 

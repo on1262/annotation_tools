@@ -1,5 +1,9 @@
 images/
 saved_imgs/
+
+video_output/
+video_input/
+
 __pycache__/
 .vscode/
 

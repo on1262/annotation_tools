@@ -4,13 +4,14 @@ from configs import GBL_CONF
 
 
 class ImageAnnotation():
-    def __init__(self) -> None:
+    def __init__(self, addi_params) -> None:
         self.conf = GBL_CONF('image_annotation')
-        self.img_names = sorted([p for p in os.listdir("images") if p.endswith('.jpg')])
-        self.img_paths = [os.path.join('images', p) for p in self.img_names]
+        img_dir = "images" if addi_params is None else addi_params['img_dir']
+        self.img_names = sorted([p for p in os.listdir(img_dir) if p.endswith('.jpg')])
+        self.img_paths = [os.path.join(img_dir, p) for p in self.img_names]
         self.img_cache = {}
         self.saved_flag = {}
-        self.save_folder = "saved_imgs"
+        self.save_folder = "saved_imgs" if addi_params is None else addi_params['save_folder']
         self.save_paths = [os.path.join(self.save_folder, p) for p in self.img_names]
         self.img_index = 0
         # window
@@ -30,10 +31,12 @@ class ImageAnnotation():
         self.drawing = False
         # watch mode
         self.watch_mode = False
+        # single image mode: if enabled, press 'S' will save current image and exit.
+        self.single_img_mode = False if not addi_params else addi_params['single_img_mode']
 
         cv2.namedWindow(self.unique_name, cv2.WINDOW_AUTOSIZE)
         self.init_imgs(self.img_index)
-        self.keyboard_callback()
+        self.main_loop()
 
     def img_title(self):
         saved_status = ' (saved) ' if self.get_saved_flag() else ' '
@@ -207,7 +210,7 @@ class ImageAnnotation():
         if last_watch_mode:
             self.turn_on_watch_mode()
 
-    def keyboard_callback(self):
+    def main_loop(self):
         while(1):
             key = cv2.waitKey(0)
             if key == ord('q'): # decrease brush size
@@ -242,14 +245,17 @@ class ImageAnnotation():
                 last_watch_mode = self.watch_mode
                 self.turn_off_watch_mode()
                 self.save_img()
-                self.img_cache[self.img_index] = self.real_img.copy()
-                if self.img_index < len(self.img_paths) - 1:
-                    self.img_index += 1
-                    self.init_imgs(self.img_index)
-                    if last_watch_mode:
-                        self.turn_on_watch_mode()
+                if self.single_img_mode:
+                    return
                 else:
-                    print('已经是最后一张图片了')
+                    self.img_cache[self.img_index] = self.real_img.copy()
+                    if self.img_index < len(self.img_paths) - 1:
+                        self.img_index += 1
+                        self.init_imgs(self.img_index)
+                        if last_watch_mode:
+                            self.turn_on_watch_mode()
+                    else:
+                        print('已经是最后一张图片了')
             elif key == 27:
                 return
     

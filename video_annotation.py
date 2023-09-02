@@ -38,13 +38,29 @@ import wx  # 2.8 ... 4.0.6
 import vlc
 
 # import standard libraries
-from os.path import basename, expanduser, isfile, join as joined
+import os
+from os.path import basename, expanduser, isfile, exists, join as joined
 import sys
 import math
 from configs import GBL_CONF
 from image_annotation import ImageAnnotation
-unicode = str  # Python 3
 
+def create_file_folder():
+    paths = [
+        'video_input',
+        'video_annotation',
+        'video_output'
+    ]
+    for p in paths:
+        if not exists(p):
+            os.makedirs(p, exist_ok=True)
+    for pv in sorted(os.listdir('video_input')):
+        if pv.endswith('.mp4'):
+            po = joined('video_output', pv)
+            if not exists(po):
+                os.makedirs(po, exist_ok=True)
+                os.makedirs(joined(po, 'saved_imgs'), exist_ok=True)
+                os.makedirs(joined(po, 'images'), exist_ok=True)
 
 class SelectionFrame(wx.MiniFrame):
     def __init__(self, parent):
@@ -72,15 +88,22 @@ class SelectionFrame(wx.MiniFrame):
         # painting
         self.paint_timer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, self.OnTimer, self.paint_timer)
-        self.init_mouse_pos = None
+        self.init_mouse_x = None
         self.init_time = None
         self.x_delta = 0
+        
         self.frame_width = 25
         self.frame_height = 60
+        self.window_height = 120
+        self.window_width = 400
         self.draw_y = self.panel.GetSize().GetHeight() // 2 + self.frame_height // 2
         self.margin = 5
 
     def OnMouseWheel(self, evt):
+        # reset initial mouse xy if scale is changed
+        _, self.init_time = self.GetCurrentMouseTick(self.init_mouse_x + self.x_delta)
+        self.init_mouse_x += self.x_delta
+        self.x_delta = 0
         delta = evt.GetWheelRotation()
         if delta > 0:
             self.current_tick_option = min(self.current_tick_option + 1, len(self.tick_option) - 1)
@@ -93,24 +116,24 @@ class SelectionFrame(wx.MiniFrame):
         self.panel.Refresh()
 
     def OnShow(self, mouse_pos, init_time):
-        self.init_mouse_pos = mouse_pos
+        self.init_mouse_x = self.window_width // 2
         self.init_time = init_time
+        self.x_delta = 0
         self.panel.Bind(wx.EVT_MOTION, self.OnMotion)
 
-        self.paint_timer.Start(100)
-        parent_size = self.Parent.GetSize()
+        self.paint_timer.Start(30)
         parent_position = self.Parent.GetPosition()
-        self_height = 120
-        self.SetSize((parent_size.GetWidth(), self_height))
+        self.SetSize((self.window_width, self.window_height))
         # top-bottom: y, left-right: x
         # set center position to mouse position
-        self.SetPosition((parent_position.x + mouse_pos.x - parent_size.GetWidth() // 2, parent_position.y + mouse_pos.y - self_height // 2))
+        self.SetPosition((parent_position.x + mouse_pos.x - self.window_width // 2, parent_position.y + mouse_pos.y - self.window_height // 2))
         self.Show()
         self.Raise()
 
     def OnHide(self):
         self.paint_timer.Stop()
         self.panel.Unbind(wx.EVT_MOTION)
+        self.x_delta = 0
         self.Hide()
 
     def OnPaint(self, evt):
@@ -123,11 +146,12 @@ class SelectionFrame(wx.MiniFrame):
         dc.SetBrush(wx.Brush(wx.Colour(0, 0, 0, 128)))
 
         # paint text on top center
-        dc.SetFont(wx.Font(20, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+        dc.SetFont(wx.Font(15, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
         dc.DrawText('Tick: ' + self.tick_option[self.current_tick_option][1], size[0] // 2 - 60, 0)
         
         for idx in range(start_idx, end_idx):
             dc.SetPen(wx.TRANSPARENT_PEN)
+            center_idx = -(self.x_delta // (self.frame_width + self.margin))
             x = size[0] // 2 + idx * (self.frame_width + self.margin) + (self.x_delta % (self.frame_width + self.margin))
             t_bound = [
                 self.init_time + self.x_delta + idx * t_interval,
@@ -136,20 +160,34 @@ class SelectionFrame(wx.MiniFrame):
             if (x - size[0] // 2) * (x + self.frame_width - size[0] // 2) <= 0:
                 dc.SetPen(wx.Pen(wx.Colour(30, 200, 30, 250), 2))
             dc.DrawRectangle(x, self.draw_y, self.frame_width, self.frame_height)
-            dc.DrawText(str(idx), x + 2, self.draw_y)
+            if idx + center_idx < 0:
+                dc.DrawText(str(idx + center_idx), x+2, self.draw_y + self.frame_height - 20)
+            else:
+                dc.DrawText(str(idx + center_idx), x+2, self.draw_y + 2)
 
         # draw center dash line
         dc.SetPen(wx.Pen('black', 2))
         dc.DrawLine(size[0] // 2, 30, size[0] // 2, size[1] - 20)
 
-    def OnMotion(self, evt):
-        mouse_x = evt.GetPosition().x
+    def GetCurrentMouseTick(self, mouse_x):
         # change painting
-        x_delta = (mouse_x - self.init_mouse_pos.x)
-        self.x_delta = x_delta
+        x_delta = (mouse_x - self.init_mouse_x)
+        
         # send event to parent
         delta_tick = self.tick_option[self.current_tick_option][0] / (self.frame_width + self.margin) * x_delta
-        self.Parent.OnVideoMotion(round(delta_tick + self.init_time))
+        return x_delta, round(delta_tick + self.init_time)
+
+    def OnMotion(self, evt):
+        mouse_x = evt.GetPosition().x
+        x_delta, new_tick = self.GetCurrentMouseTick(mouse_x)
+        if new_tick <= 0 or new_tick > self.Parent.timeslider.GetMax():
+            # move init mouse position if out of range
+            self.init_mouse_x = mouse_x
+            self.x_delta = 0
+            self.init_time = self.Parent.player.get_time()
+        else:
+            self.x_delta = x_delta
+            self.Parent.OnVideoMotion(new_tick)
     
     def OnLeftUp(self, evt):
         self.Parent.OnVideoLeftClick(evt)
@@ -157,10 +195,17 @@ class SelectionFrame(wx.MiniFrame):
 class VideoAnnotation(wx.Frame):
     """The main window has to deal with events.
     """
-    def __init__(self, title='', video=''):
-        wx.Frame.__init__(self, None, -1, title=title or 'wxVLC', pos=wx.DefaultPosition, size=(550, 500))
+    def __init__(self):
+        wx.Frame.__init__(self, None, -1, title='wxVLC', pos=wx.DefaultPosition, size=(550, 500))
 
-        self.video = video
+        # search input folder
+        create_file_folder()
+        self.video_names = []
+        for pv in sorted(os.listdir('video_input')):
+            if pv.endswith('.mp4'):
+                self.video_names.append(pv)
+        self.video_idx = 0
+        self.video_path = joined('video_input', self.video_names[self.video_idx]) if len(self.video_names) > 0 else None
 
         # Menu Bar
         #   File Menu
@@ -169,6 +214,10 @@ class VideoAnnotation(wx.Frame):
         self.file_menu.Append(1, "&Open...", "Open from file...")
         self.file_menu.AppendSeparator()
         self.file_menu.Append(2, "&Close", "Quit")
+        self.file_menu.AppendSeparator()
+        self.file_menu.Append(3, '&Toggle Next Video')
+        self.file_menu.AppendSeparator()
+        self.file_menu.Append(4, "&Export All Annotations")
         self.Bind(wx.EVT_MENU, self.OnOpen, id=1)
         self.Bind(wx.EVT_MENU, self.OnExit, id=2)
         self.frame_menubar.Append(self.file_menu, "File")
@@ -249,6 +298,13 @@ class VideoAnnotation(wx.Frame):
         self.Instance = vlc.Instance()
         self.player = self.Instance.media_player_new()
 
+    def ToggleVideo(self, new_idx):
+        if new_idx < len(self.video_names) and new_idx >= 0:
+            self.video_idx = new_idx
+            self.video_path = joined('video_input', self.video_names[self.video_idx])
+            self.OnStop(None)
+            self.OnOpen(None)
+    
     def GetSnapshoot(self, out_path):
         # return successful or not
         if self.player.get_media():
@@ -264,6 +320,15 @@ class VideoAnnotation(wx.Frame):
                 self.comment.SetEditable(True)
                 self.comment.SetFocus()
     
+    def CreateAnnotation(self, tick, type, comment):
+        img_window = ImageAnnotation(addi_params={
+            'img_dir': joined('video_output', self.video_names[self.video_idx], 'images'),
+            'saved_folder': joined('video_output', self.video_names[self.video_idx], 'saved_imgs'),
+            'single_img_mode': True
+        })
+        self.Raise() # fetch focus
+        # self.annotation[tick] = (type, comment)
+
     def OnComment(self, evt):
         self.comment.SetEditable(False)
         
@@ -278,26 +343,23 @@ class VideoAnnotation(wx.Frame):
         # if a file is already running, then stop it.
         self.OnStop(None)
 
-        video = self.video
-        if video:
-            self.video = ''
-        else:  # Create a file dialog opened in the current home directory,
+        if not self.video_path: # Create a file dialog opened in the current home directory,
             # to show all kind of files, having as title "Choose a ...".
             dlg = wx.FileDialog(self, "Choose a video file", expanduser('~'),
                                       "", "*.*", wx.FD_OPEN)  # XXX wx.OPEN
             if dlg.ShowModal() == wx.ID_OK:
-                video = joined(dlg.GetDirectory(), dlg.GetFilename())
+                self.video_path = joined(dlg.GetDirectory(), dlg.GetFilename())
             # finally destroy the dialog
             dlg.Destroy()
 
-        if isfile(video):  # Creation
-            self.Media = self.Instance.media_new(unicode(video))
+        if isfile(self.video_path):  # Creation
+            self.Media = self.Instance.media_new(self.video_path)
             self.player.set_media(self.Media)
             # Report the title of the file chosen
             title = self.player.get_title()
             # if an error was encountred while retrieving the title,
             # otherwise use filename
-            self.SetTitle("%s - %s" % (title if title != -1 else 'wxVLC', basename(video)))
+            self.SetTitle("%s - %s" % (title if title != -1 else 'wxVLC', basename(self.video_path)))
 
             # set the window id where to render VLC's video output
             handle = self.videopanel.GetHandle()
@@ -399,7 +461,6 @@ class VideoAnnotation(wx.Frame):
             self.OnPause(None)
             self.seek_timer.Start(100)  # XXX millisecs
 
-
     def OnSeekTimer(self, evt):
         offset = self.timeslider.GetValue()
         # Don't seek when the slider is at the end
@@ -419,47 +480,11 @@ class VideoAnnotation(wx.Frame):
         edialog.ShowModal()
 
 
-if __name__ == "__main__":
-
-    _video = ''
-
-    while len(sys.argv) > 1:
-        arg = sys.argv.pop(1)
-        if arg.lower() in ('-v', '--version'):
-            # show all versions, sample output on macOS:
-            # % python3 ./wxvlc.py -v
-            # wxvlc.py: 19.07.28 (wx 4.0.6 osx-cocoa (phoenix) wxWidgets 3.0.5 _core.cpython-37m-darwin.so)
-            # vlc.py: 3.0.6109 (Sun Mar 31 20:14:16 2019 3.0.6)
-            # LibVLC version: 3.0.6 Vetinari (0x3000600)
-            # LibVLC compiler: clang: warning: argument unused during compilation: '-mmacosx-version-min=10.7' [-Wunused-command-line-argument]
-            # Plugin path: /Applications/VLC3.0.6.app/Contents/MacOS/plugins
-            # Python: 3.7.4 (64bit) macOS 10.13.6
-
-            # Print version of this vlc.py and of the libvlc
-            c = basename(str(wx._core).split()[-1].rstrip('>').strip("'").strip('"'))
-            print('%s: %s (%s %s %s)' % (basename(__file__), __version__,
-                                         wx.__name__, wx.version(), c))
-            try:
-                vlc.print_version()
-                vlc.print_python()
-            except AttributeError:
-                pass
-            sys.exit(0)
-
-        elif arg.startswith('-'):
-            print('usage: %s  [-v | --version]  [<video_file_name>]' % (sys.argv[0],))
-            sys.exit(1)
-
-        elif arg:  # video file
-            _video = expanduser(arg)
-            if not isfile(_video):
-                print('%s error: no such file: %r' % (sys.argv[0], arg))
-                sys.exit(1)
-
+def start_video_annotation():
     # Create a wx.App(), which handles the windowing system event loop
     app = wx.App()  # XXX wx.PySimpleApp()
     # Create the window containing our media player
-    player = VideoAnnotation(video=_video)
+    player = VideoAnnotation()
     # show the player window centred
     player.Centre()
     player.Show()
