@@ -1,6 +1,8 @@
 images/
 saved_imgs/
+cache/
 
+video_cache/
 video_output/
 video_input/
 

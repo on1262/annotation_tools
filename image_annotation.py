@@ -1,11 +1,30 @@
 import cv2
 import os
 from configs import GBL_CONF
+import random
+
+def GetCommentImg(img_path, out_path):
+    '''Create a special image that each neuron is colored with a different color and has a number on it
+    '''
+    img = cv2.imread(img_path) # WHBGR
+    target_map = (img[:,:,0] > 240) * (img[:,:,1] < 10) * (img[:,:,2] < 10) # WH
+    target_map = target_map.astype('int')*255
+    ret, labels = cv2.connectedComponents(target_map.astype('uint8'), connectivity=4)
+    for label in range(1, ret):
+        random_color = [random.randint(0, 240), random.randint(100, 240), random.randint(0, 100)] # BGR
+        reverse_color = [255 - c for c in random_color]
+        mask = labels == label
+        img[mask, :] = random_color
+        # add number
+        x, y = (labels == label).nonzero()
+        x, y = round(x.mean()), round(y.mean())
+        img = cv2.putText(img, str(label), (y, x), cv2.FONT_HERSHEY_SIMPLEX, 1, reverse_color, 2)
+    cv2.imwrite(out_path, img, [cv2.IMWRITE_JPEG_QUALITY, 100])
 
 
 class ImageAnnotation():
     def __init__(self, addi_params) -> None:
-        self.conf = GBL_CONF('image_annotation')
+        self.conf = GBL_CONF['image_annotation']
         img_dir = "images" if addi_params is None else addi_params['img_dir']
         self.img_names = sorted([p for p in os.listdir(img_dir) if p.endswith('.jpg')])
         self.img_paths = [os.path.join(img_dir, p) for p in self.img_names]
@@ -13,7 +32,10 @@ class ImageAnnotation():
         self.saved_flag = {}
         self.save_folder = "saved_imgs" if addi_params is None else addi_params['save_folder']
         self.save_paths = [os.path.join(self.save_folder, p) for p in self.img_names]
-        self.img_index = 0
+        if not addi_params:
+            self.img_index = 0
+        else:
+            self.img_index = self.img_names.index(addi_params['init_img_name'])
         # window
         self.unique_name = "Image"
         # brush
@@ -246,6 +268,7 @@ class ImageAnnotation():
                 self.turn_off_watch_mode()
                 self.save_img()
                 if self.single_img_mode:
+                    cv2.destroyAllWindows()
                     return
                 else:
                     self.img_cache[self.img_index] = self.real_img.copy()
@@ -260,7 +283,7 @@ class ImageAnnotation():
                 return
     
     def save_img(self):
-        result = cv2.imwrite(self.save_paths[self.img_index], self.real_img)
+        result = cv2.imwrite(self.save_paths[self.img_index], self.real_img, [cv2.IMWRITE_JPEG_QUALITY, 100])
         if result:
             self.saved_flag[self.img_index] = True
         else:

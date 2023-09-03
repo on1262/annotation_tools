@@ -1,4 +1,3 @@
-from ast import arg
 from image_annotation import ImageAnnotation
 from video_annotation import start_video_annotation
 import argparse

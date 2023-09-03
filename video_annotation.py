@@ -34,6 +34,7 @@ Data: 02-09-2023
 __version__ = '19.07.28'  # mrJean1 at Gmail dot com
 
 # import external libraries
+from turtle import width
 import wx  # 2.8 ... 4.0.6
 import vlc
 
@@ -43,7 +44,8 @@ from os.path import basename, expanduser, isfile, exists, join as joined
 import sys
 import math
 from configs import GBL_CONF
-from image_annotation import ImageAnnotation
+import numpy as np
+from image_annotation import ImageAnnotation, GetCommentImg
 
 def create_file_folder():
     paths = [
@@ -62,6 +64,20 @@ def create_file_folder():
                 os.makedirs(joined(po, 'saved_imgs'), exist_ok=True)
                 os.makedirs(joined(po, 'images'), exist_ok=True)
 
+# class CommentFrame(wx.MiniFrame):
+#     def __init__(self, parent):
+#         wx.MiniFrame.__init__(self, parent, -1, 'Floating Panel', style=wx.NO_BORDER | wx.FRAME_FLOAT_ON_PARENT)
+#         self.panel = wx.Panel(self, -1)
+#         self.panel.Bind(wx.EVT_PAINT, self.OnPaint)
+#         self.img = None
+# 
+#     def OnShow(self, annotated_img_path):
+#         self.img = GetCommentImg(annotated_img_path)
+# 
+#     def OnPaint(self, evt):
+#         pass
+
+
 class SelectionFrame(wx.MiniFrame):
     def __init__(self, parent):
         wx.MiniFrame.__init__(self, parent, -1, 'Floating Panel', style=wx.NO_BORDER | wx.FRAME_FLOAT_ON_PARENT)
@@ -69,6 +85,7 @@ class SelectionFrame(wx.MiniFrame):
         self.panel = wx.Panel(self, -1)
         self.panel.Bind(wx.EVT_PAINT, self.OnPaint)
         self.panel.Bind(wx.EVT_LEFT_UP, self.OnLeftUp)
+        self.panel.Bind(wx.EVT_RIGHT_UP, self.OnRightUp)
         self.panel.Bind(wx.EVT_MOUSEWHEEL, self.OnMouseWheel)
         # selection information
         self.tick_option = [ # (ms, text, margin, frame_width)
@@ -192,6 +209,12 @@ class SelectionFrame(wx.MiniFrame):
     def OnLeftUp(self, evt):
         self.Parent.OnVideoLeftClick(evt)
 
+    def OnRightUp(self, evt):
+        # cancel selection, move to original tick
+        self.Parent.OnVideoMotion(self.init_time)
+        self.Parent.OnSelectFlushTimer(None)
+        self.Parent.OnVideoLeftClick(evt)
+
 class VideoAnnotation(wx.Frame):
     """The main window has to deal with events.
     """
@@ -208,7 +231,7 @@ class VideoAnnotation(wx.Frame):
         self.video_path = joined('video_input', self.video_names[self.video_idx]) if len(self.video_names) > 0 else None
 
         # Menu Bar
-        #   File Menu
+        # File Menu
         self.frame_menubar = wx.MenuBar()
         self.file_menu = wx.Menu()
         self.file_menu.Append(1, "&Open...", "Open from file...")
@@ -241,6 +264,11 @@ class VideoAnnotation(wx.Frame):
         self.selectframe = SelectionFrame(self)
         self.selectframe.Hide()
 
+        # fourth panel for comment
+        self.commentpanel = wx.Panel(self, -1)
+        self.commentpanel.SetBackgroundColour(wx.BLACK)
+        self.commentpanel.Hide()
+
         self.pause = wx.Button(ctrlpanel, label="Pause")
         self.pause.Disable()
         self.play = wx.Button(ctrlpanel, label="Play")
@@ -248,13 +276,13 @@ class VideoAnnotation(wx.Frame):
         self.stop.Disable()
         self.comment = wx.TextCtrl(ctrlpanel, style=wx.TE_PROCESS_ENTER)
         self.comment.SetEditable(False)
-        self.comment.Bind(wx.EVT_TEXT_ENTER, self.OnComment)
+        self.comment.Bind(wx.EVT_TEXT_ENTER, self.OnFinishComment)
 
         # Bind controls to events
         self.Bind(wx.EVT_BUTTON, self.OnPlay,   self.play)
         self.Bind(wx.EVT_BUTTON, self.OnPause,  self.pause)
         self.Bind(wx.EVT_BUTTON, self.OnStop,   self.stop)
-        self.videopanel.Bind(wx.EVT_CHAR, self.OnPressKey)
+        self.videopanel.Bind(wx.EVT_KEY_DOWN, self.OnPressKey)
 
         self.videopanel.Bind(wx.EVT_LEFT_UP, self.OnVideoLeftClick)
         # Bind the time slider to the seek function
@@ -286,6 +314,7 @@ class VideoAnnotation(wx.Frame):
         # Put everything togheter
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(self.videopanel, 1, flag=wx.EXPAND)
+        sizer.Add(self.commentpanel, 1, flag=wx.EXPAND)
         sizer.Add(ctrlpanel, flag=wx.EXPAND | wx.BOTTOM | wx.TOP, border=10)
         self.SetSizer(sizer)
         self.SetMinSize((350, 300))
@@ -314,22 +343,68 @@ class VideoAnnotation(wx.Frame):
     
     def OnPressKey(self, evt):
         # press c to comment
-        if evt.GetKeyCode() == ord('c'):
+        code = evt.GetKeyCode()
+        if code == ord('c') or code == ord('C'):
             # add comment though text
             if (not self.selecting) and (not self.player.is_playing()):
+                comment_img_path = joined('video_output', self.video_names[self.video_idx], 'saved_imgs', 
+                    str.split(self.video_names[self.video_idx], '.')[0] + '@' + str(self.player.get_time()) + '.jpg')
+                out_path = joined('video_cache', str.split(self.video_names[self.video_idx], '.')[0] + '@' + str(self.player.get_time()) + '.jpg')
+                if exists(comment_img_path):
+                    GetCommentImg(comment_img_path, out_path)
+                    self.comment_img_path = out_path
+                    self.videopanel.Hide()
+                    self.commentpanel.SetSize(self.videopanel.GetSize())
+                    self.commentpanel.Bind(wx.EVT_PAINT, self.OnPaintCommentImg)
+                    self.commentpanel.Show()
+                    self.commentpanel.Refresh()
+                else:
+                    self.comment_img_path = None
                 self.comment.SetEditable(True)
                 self.comment.SetFocus()
+        elif code == ord('s') or code == ord('S'): 
+            if (not self.selecting) and (self.player.get_media() is not None):
+                self.CreateAnnotation(self.player.get_time(), 'Annotation', self.comment.GetValue())
+        elif code == wx.WXK_SPACE:
+            self.OnPause(evt)
+    
+    def OnPaintCommentImg(self, evt):
+        dc = wx.PaintDC(self.commentpanel)
+        # dc.SetBrush(wx.Brush(wx.Colour(0, 0, 255, 128)))
+        # dc.DrawRectangle(0, 0, self.commentpanel.GetSize().GetWidth(), self.commentpanel.GetSize().GetHeight())
+        # calculate real video size
+        ori_size = self.player.video_get_size()
+        wh_ratio = ori_size[0] / ori_size[1]
+        vs = self.videopanel.GetSize()
+        if vs[0]/vs[1] < wh_ratio:
+            w, h = vs[0], round(vs[0] / wh_ratio)
+            w_offset, h_offset = 0, (vs[1] - h) // 2
+        else:
+            w, h = round(vs[1]*wh_ratio), vs[1]
+            w_offset, h_offset = (vs[0] - w) // 2, 0
+        wximg = wx.Image(self.comment_img_path, wx.BITMAP_TYPE_ANY)
+        wximg = wximg.Scale(w, h, quality=wx.IMAGE_QUALITY_HIGH)
+        wximg = wx.Bitmap(wximg)
+        dc.DrawBitmap(wximg, w_offset, h_offset)
     
     def CreateAnnotation(self, tick, type, comment):
-        img_window = ImageAnnotation(addi_params={
-            'img_dir': joined('video_output', self.video_names[self.video_idx], 'images'),
-            'saved_folder': joined('video_output', self.video_names[self.video_idx], 'saved_imgs'),
-            'single_img_mode': True
-        })
-        self.Raise() # fetch focus
+        # take a snapshoot
+        img_dir = joined('video_output', self.video_names[self.video_idx], 'images')
+        save_folder = joined('video_output', self.video_names[self.video_idx], 'saved_imgs')
+        img_name = str.split(self.video_names[self.video_idx], '.')[0] + '@' + str(self.player.get_time()) + '.jpg'
+        if self.player.video_take_snapshot(0, joined(img_dir, img_name), 0, 0) == 0:
+            img_window = ImageAnnotation(addi_params={
+                'img_dir': img_dir,
+                'save_folder': save_folder,
+                'init_img_name': img_name,
+                'single_img_mode': True
+            })
+            self.Raise() # fetch focus
         # self.annotation[tick] = (type, comment)
 
-    def OnComment(self, evt):
+    def OnFinishComment(self, evt):
+        self.commentpanel.Hide()
+        self.videopanel.Show()
         self.comment.SetEditable(False)
         
     def OnExit(self, evt):
@@ -399,6 +474,7 @@ class VideoAnnotation(wx.Frame):
             self.selecting = False
             self.select_flush_timer.Stop()
             self.selectframe.OnHide()
+            self.videopanel.SetFocus()
         else:
             self.selecting = True
             if self.player.is_playing():
