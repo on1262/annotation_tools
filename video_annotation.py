@@ -34,6 +34,7 @@ Data: 02-09-2023
 __version__ = '19.07.28'  # mrJean1 at Gmail dot com
 
 # import external libraries
+from random import sample
 from turtle import width
 import wx  # 2.8 ... 4.0.6
 import vlc
@@ -45,7 +46,57 @@ import sys
 import math
 from configs import GBL_CONF
 import numpy as np
-from image_annotation import ImageAnnotation, GetCommentImg
+import re, csv
+from image_annotation import ImageAnnotator, GetCommentImg
+
+class AnnotationData():
+    def __init__(self) -> None:
+        self.data = {}
+
+    def load_data(self, csv_path):
+        self.data = {}
+        videoname = os.path.split(csv_path)[-1][:-4] + '.mp4'
+        with open(csv_path, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                self.data[int(row['tick'])] = {
+                    'type': row['type'],
+                    'videoname': videoname,
+                    'img_name': row['img_name'],
+                    'region_count': row['region_count'],
+                    'sample_attr': row['attr'],
+                    'frame_attr': row['frame_attr']
+                }
+    
+    def save_data(self, csv_path):
+        videoname = os.path.split(csv_path)[-1][:-4] + '.mp4'
+        with open(csv_path, 'w', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow(['tick', 'type', 'videoname', 'img_name', 'region_count', 'sample_attr', 'frame_attr'])
+            for tick in sorted(self.data.keys()):
+                writer.writerow([
+                    tick, 
+                    self.data[tick]['type'], 
+                    videoname,
+                    self.data[tick]['img_name'],
+                    self.data[tick]['region_count'], 
+                    self.data[tick]['sample_attr'], 
+                    self.data[tick]['frame_attr']
+                ])
+
+    def register(self, tick, reg_dict:dict):
+        assert(isinstance(reg_dict, dict))
+        assert(isinstance(tick, int))
+        if tick not in self.data: # create item
+            self.data[tick] = reg_dict
+        else: # overwrite value
+            for key in self.data[tick]:
+                if key in reg_dict:
+                    if key == 'type' and self.data[tick][key] == 'pic': # comment will not over write picture
+                        continue
+                    self.data[tick][key] = reg_dict[key]
+
+VIDEO_ANNO = AnnotationData()
 
 def create_file_folder():
     paths = [
@@ -64,21 +115,7 @@ def create_file_folder():
                 os.makedirs(joined(po, 'saved_imgs'), exist_ok=True)
                 os.makedirs(joined(po, 'images'), exist_ok=True)
 
-# class CommentFrame(wx.MiniFrame):
-#     def __init__(self, parent):
-#         wx.MiniFrame.__init__(self, parent, -1, 'Floating Panel', style=wx.NO_BORDER | wx.FRAME_FLOAT_ON_PARENT)
-#         self.panel = wx.Panel(self, -1)
-#         self.panel.Bind(wx.EVT_PAINT, self.OnPaint)
-#         self.img = None
-# 
-#     def OnShow(self, annotated_img_path):
-#         self.img = GetCommentImg(annotated_img_path)
-# 
-#     def OnPaint(self, evt):
-#         pass
-
-
-class SelectionFrame(wx.MiniFrame):
+class Selector(wx.MiniFrame):
     def __init__(self, parent):
         wx.MiniFrame.__init__(self, parent, -1, 'Floating Panel', style=wx.NO_BORDER | wx.FRAME_FLOAT_ON_PARENT)
         self.SetTransparent(150)
@@ -100,7 +137,6 @@ class SelectionFrame(wx.MiniFrame):
             (5*60*1000.0, '5 minutes', 17, 25),
         ]
         self.current_tick_option = 3
-        self.annotation = {} # tick: (type, comment)
 
         # painting
         self.paint_timer = wx.Timer(self)
@@ -215,11 +251,16 @@ class SelectionFrame(wx.MiniFrame):
         self.Parent.OnSelectFlushTimer(None)
         self.Parent.OnVideoLeftClick(evt)
 
-class VideoAnnotation(wx.Frame):
+class VideoAnnotator(wx.Frame):
     """The main window has to deal with events.
     """
     def __init__(self):
         wx.Frame.__init__(self, None, -1, title='wxVLC', pos=wx.DefaultPosition, size=(550, 500))
+
+        self.conf = GBL_CONF['video_annotation']
+
+        # init regex
+        self.init_regex()
 
         # search input folder
         create_file_folder()
@@ -261,12 +302,13 @@ class VideoAnnotation(wx.Frame):
         self.select_flush_timer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, self.OnSelectFlushTimer, self.select_flush_timer)
         self.mouse_tick = 0
-        self.selectframe = SelectionFrame(self)
+        self.selectframe = Selector(self)
         self.selectframe.Hide()
 
         # fourth panel for comment
         self.commentpanel = wx.Panel(self, -1)
         self.commentpanel.SetBackgroundColour(wx.BLACK)
+        self.commentpanel.Bind(wx.EVT_PAINT, self.OnPaintCommentImg)
         self.commentpanel.Hide()
 
         self.pause = wx.Button(ctrlpanel, label="Pause")
@@ -274,9 +316,11 @@ class VideoAnnotation(wx.Frame):
         self.play = wx.Button(ctrlpanel, label="Play")
         self.stop = wx.Button(ctrlpanel, label="Stop")
         self.stop.Disable()
-        self.comment = wx.TextCtrl(ctrlpanel, style=wx.TE_PROCESS_ENTER)
+        self.comment = wx.TextCtrl(ctrlpanel, style=wx.TE_PROCESS_ENTER | wx.TE_MULTILINE | wx.TE_RICH2)
         self.comment.SetEditable(False)
+        self.comment.SetMaxSize((1920, 30))
         self.comment.Bind(wx.EVT_TEXT_ENTER, self.OnFinishComment)
+        self.comment.Bind(wx.EVT_TEXT, self.OnInputComment)
 
         # Bind controls to events
         self.Bind(wx.EVT_BUTTON, self.OnPlay,   self.play)
@@ -309,7 +353,7 @@ class VideoAnnotation(wx.Frame):
         # Merge box1 and box2 to the ctrlsizer
         ctrlbox.Add(box1, flag=wx.EXPAND | wx.BOTTOM, border=10)
         ctrlbox.Add(box2, 1, wx.EXPAND)
-        ctrlbox.Add(box3, flag=wx.EXPAND | wx.BOTTOM | wx.TOP, border=10)
+        ctrlbox.Add(box3, flag=wx.EXPAND)
         ctrlpanel.SetSizer(ctrlbox)
         # Put everything togheter
         sizer = wx.BoxSizer(wx.VERTICAL)
@@ -321,11 +365,23 @@ class VideoAnnotation(wx.Frame):
 
         # finally create the timer, which updates the timeslider
         self.timer = wx.Timer(self)
-        self.Bind(wx.EVT_TIMER, self.OnTimer, self.timer)
+        self.Bind(wx.EVT_TIMER, self.OnSliderTimer, self.timer)
+
+        # image annotating flag
+        self.img_annotating = False
 
         # VLC player controls
         self.Instance = vlc.Instance()
         self.player = self.Instance.media_player_new()
+
+    def init_regex(self):
+        sample_tag_body = r"\b(?:" + '|'.join(self.conf['comment']['sample_keys']) + r")\b(?:,\b(?:" \
+            + '|'.join(self.conf['comment']['sample_keys']) + r")\b)*"
+        frame_tag_body = r"\b(?:" + '|'.join(self.conf['comment']['frame_keys']) + r")\b(?:,\b(?:" \
+            + '|'.join(self.conf['comment']['frame_keys']) + r")\b)*"
+        self.re_pattern = r"\d" + "@" + sample_tag_body + "|" + 'frm' + "@" + frame_tag_body
+        print('RE_PATTERN:', self.re_pattern)
+        self.comment_info = None
 
     def ToggleVideo(self, new_idx):
         if new_idx < len(self.video_names) and new_idx >= 0:
@@ -351,13 +407,10 @@ class VideoAnnotation(wx.Frame):
                     str.split(self.video_names[self.video_idx], '.')[0] + '@' + str(self.player.get_time()) + '.jpg')
                 out_path = joined('video_cache', str.split(self.video_names[self.video_idx], '.')[0] + '@' + str(self.player.get_time()) + '.jpg')
                 if exists(comment_img_path):
-                    GetCommentImg(comment_img_path, out_path)
                     self.comment_img_path = out_path
                     self.videopanel.Hide()
                     self.commentpanel.SetSize(self.videopanel.GetSize())
-                    self.commentpanel.Bind(wx.EVT_PAINT, self.OnPaintCommentImg)
                     self.commentpanel.Show()
-                    self.commentpanel.Refresh()
                 else:
                     self.comment_img_path = None
                 self.comment.SetEditable(True)
@@ -388,25 +441,77 @@ class VideoAnnotation(wx.Frame):
         dc.DrawBitmap(wximg, w_offset, h_offset)
     
     def CreateAnnotation(self, tick, type, comment):
-        # take a snapshoot
+        # take a snapshoot and boot image annotator
         img_dir = joined('video_output', self.video_names[self.video_idx], 'images')
         save_folder = joined('video_output', self.video_names[self.video_idx], 'saved_imgs')
         img_name = str.split(self.video_names[self.video_idx], '.')[0] + '@' + str(self.player.get_time()) + '.jpg'
+        out_path = joined('video_cache', str.split(self.video_names[self.video_idx], '.')[0] + '@' + str(self.player.get_time()) + '.jpg')
+        comment_img_path = joined('video_output', self.video_names[self.video_idx], 'saved_imgs', 
+            str.split(self.video_names[self.video_idx], '.')[0] + '@' + str(self.player.get_time()) + '.jpg')
         if self.player.video_take_snapshot(0, joined(img_dir, img_name), 0, 0) == 0:
-            img_window = ImageAnnotation(addi_params={
+            self.img_annotating = True
+            # disable components to prevent time changing
+            self.timeslider.Disable()
+            play_status = self.play.IsEnabled()
+            stop_status = self.stop.IsEnabled()
+            if play_status:
+                self.play.Disable()
+            if stop_status:
+                self.stop.Disable()
+            
+            img_annotator = ImageAnnotator(addi_params={
                 'img_dir': img_dir,
                 'save_folder': save_folder,
                 'init_img_name': img_name,
                 'single_img_mode': True
             })
+            # create img for comment
+            if exists(comment_img_path):
+                n_region = GetCommentImg(comment_img_path, out_path)
+            # register annotation
+            # ['tick', 'type', 'videoname', 'img_name', 'region_count', 'sample_attr', 'frame_attr']
+            reg_dict = {
+                'tick': self.player.get_time(),
+                'type': 'pic',
+                'video_name': self.video_names[self.video_idx],
+                'region_count':n_region
+            }
+            if play_status:
+                self.play.Enable()
+            if stop_status:
+                self.stop.Enable()
+            self.img_annotating = False
+            self.timeslider.Enable()
+            
             self.Raise() # fetch focus
-        # self.annotation[tick] = (type, comment)
 
     def OnFinishComment(self, evt):
         self.commentpanel.Hide()
         self.videopanel.Show()
         self.comment.SetEditable(False)
-        
+
+    
+    def OnInputComment(self, evt):
+        # run regex
+        input_str = evt.GetString()
+        result = re.findall(self.re_pattern, input_str)
+        spt = re.split('(' + self.re_pattern + ')', input_str)
+        spt = [s for s in spt if s != '']
+        for idx in range(len(spt)):
+            i_start = 0 if idx == 0 else len(''.join(spt[0:idx]))
+            if spt[idx] in result:
+                self.comment.SetStyle(i_start, i_start + len(spt[idx]), \
+                    wx.TextAttr(wx.Colour(70, 184, 92), wx.WHITE, font=wx.Font(15, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)))
+            else:
+                self.comment.SetStyle(i_start, i_start + len(spt[idx]), \
+                    wx.TextAttr(wx.Colour(113, 113, 113), wx.Colour(200, 200, 200), font=wx.Font(14, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)))
+        # update comment
+        unmatched = ' '.join([s for s in spt if (s not in result) and (s.strip() != '')])
+        self.comment_info = {
+            'fields': result,
+            'unmatched':  unmatched
+        }
+    
     def OnExit(self, evt):
         """Closes the window.
         """
@@ -459,12 +564,12 @@ class VideoAnnotation(wx.Frame):
             # Try to launch the media, if this fails display an error message
         elif self.player.play():  # == -1:
             self.errorDialog("Unable to play.")
-        elif not self.seeking:
+        elif (not self.seeking) and (not self.img_annotating):
             # adjust window to video aspect ratio
             # w, h = self.player.video_get_size()
             # if h > 0 and w > 0:  # often (0, 0)
             #     self.videopanel....
-            self.timer.Start(500)  # XXX millisecs
+            self.timer.Start(100)  # XXX millisecs
             self.play.Disable()
             self.pause.Enable()
             self.stop.Enable()
@@ -480,6 +585,7 @@ class VideoAnnotation(wx.Frame):
             if self.player.is_playing():
                 self.OnPause(None)
             self.select_flush_timer.Start(100)
+            self.mouse_tick = self.player.get_time() # initial mouse tick
             self.selectframe.OnShow(evt.GetPosition(), self.player.get_time())
 
     def OnVideoMotion(self, new_tick):
@@ -496,6 +602,8 @@ class VideoAnnotation(wx.Frame):
     def OnPause(self, evt):
         """Pause the player.
         """
+        if self.seeking or self.img_annotating:
+            return
         if self.player.is_playing():
             self.play.Enable()
             self.pause.Disable()
@@ -507,6 +615,8 @@ class VideoAnnotation(wx.Frame):
     def OnStop(self, evt):
         """Stop the player.
         """
+        if self.img_annotating:
+            return
         self.seeking = False
         self.player.stop()
         # reset the time slider
@@ -516,7 +626,7 @@ class VideoAnnotation(wx.Frame):
         self.pause.Disable()
         self.stop.Disable()
 
-    def OnTimer(self, evt):
+    def OnSliderTimer(self, evt):
         """Update the time slider according to the current movie time.
         """
         if self.seeking or self.selecting:
@@ -560,7 +670,7 @@ def start_video_annotation():
     # Create a wx.App(), which handles the windowing system event loop
     app = wx.App()  # XXX wx.PySimpleApp()
     # Create the window containing our media player
-    player = VideoAnnotation()
+    player = VideoAnnotator()
     # show the player window centred
     player.Centre()
     player.Show()

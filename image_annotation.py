@@ -20,9 +20,10 @@ def GetCommentImg(img_path, out_path):
         x, y = round(x.mean()), round(y.mean())
         img = cv2.putText(img, str(label), (y, x), cv2.FONT_HERSHEY_SIMPLEX, 1, reverse_color, 2)
     cv2.imwrite(out_path, img, [cv2.IMWRITE_JPEG_QUALITY, 100])
+    return ret - 1 # number of neuros
 
 
-class ImageAnnotation():
+class ImageAnnotator():
     def __init__(self, addi_params) -> None:
         self.conf = GBL_CONF['image_annotation']
         img_dir = "images" if addi_params is None else addi_params['img_dir']
