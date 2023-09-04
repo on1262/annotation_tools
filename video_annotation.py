@@ -34,8 +34,7 @@ Data: 02-09-2023
 __version__ = '19.07.28'  # mrJean1 at Gmail dot com
 
 # import external libraries
-from random import sample
-from turtle import width
+from tracemalloc import start
 import wx  # 2.8 ... 4.0.6
 import vlc
 
@@ -52,6 +51,7 @@ from image_annotation import ImageAnnotator, GetCommentImg
 class AnnotationData():
     def __init__(self) -> None:
         self.data = {}
+        self.sorted_keys = []
 
     def load_data(self, csv_path):
         self.data = {}
@@ -65,14 +65,16 @@ class AnnotationData():
                     'img_name': row['img_name'],
                     'region_count': row['region_count'],
                     'sample_attr': row['attr'],
-                    'frame_attr': row['frame_attr']
+                    'frame_attr': row['frame_attr'],
+                    'comment': row['comment']
                 }
+        self.sorted_keys = sorted(list(self.data.keys()))
     
     def save_data(self, csv_path):
         videoname = os.path.split(csv_path)[-1][:-4] + '.mp4'
         with open(csv_path, 'w', encoding='utf-8') as f:
             writer = csv.writer(f)
-            writer.writerow(['tick', 'type', 'videoname', 'img_name', 'region_count', 'sample_attr', 'frame_attr'])
+            writer.writerow(['tick', 'type', 'videoname', 'img_name', 'region_count', 'sample_attr', 'frame_attr', 'comment'])
             for tick in sorted(self.data.keys()):
                 writer.writerow([
                     tick, 
@@ -81,20 +83,42 @@ class AnnotationData():
                     self.data[tick]['img_name'],
                     self.data[tick]['region_count'], 
                     self.data[tick]['sample_attr'], 
-                    self.data[tick]['frame_attr']
+                    self.data[tick]['frame_attr'],
+                    self.data[tick]['comment']
                 ])
 
-    def register(self, tick, reg_dict:dict):
+    def register(self, reg_dict:dict):
         assert(isinstance(reg_dict, dict))
+        tick = reg_dict['tick']
+        reg_dict.pop('tick')
         assert(isinstance(tick, int))
         if tick not in self.data: # create item
             self.data[tick] = reg_dict
+            self.sorted_keys.append(tick)
+            self.sorted_keys = sorted(self.sorted_keys)
         else: # overwrite value
             for key in self.data[tick]:
                 if key in reg_dict:
-                    if key == 'type' and self.data[tick][key] == 'pic': # comment will not over write picture
+                    if key == 'type' and self.data[tick][key] == 'image': # comment will not over write picture
                         continue
                     self.data[tick][key] = reg_dict[key]
+
+    def query_ticks(self, t_min, t_max):
+        # get ticks in [t_min, t_max)
+        result = set()
+        assert(isinstance(t_min, int) and isinstance(t_max, int))
+        assert(t_max >= t_min)
+        index_min = np.searchsorted(self.sorted_keys, t_min)
+        index_max = np.searchsorted(self.sorted_keys, t_max)
+        index_min = max(0, index_min - 1)
+        index_max = min(len(self.sorted_keys), index_max + 1)
+        for i in range(index_min, index_max):
+            if t_min <= self.sorted_keys[i] < t_max:
+                result.add(self.data[self.sorted_keys[i]]['type'])
+            if 'image' in result and 'comment_only' in result:
+                return result
+        return result
+
 
 VIDEO_ANNO = AnnotationData()
 
@@ -147,10 +171,10 @@ class Selector(wx.MiniFrame):
         
         self.frame_width = 25
         self.frame_height = 60
-        self.window_height = 120
-        self.window_width = 400
-        self.draw_y = self.panel.GetSize().GetHeight() // 2 + self.frame_height // 2
         self.margin = 5
+        self.window_height = 150
+        self.window_width = 11*(self.frame_width + self.margin)
+        self.draw_y = self.panel.GetSize().GetHeight() // 2 + self.frame_height // 2
 
     def OnMouseWheel(self, evt):
         # reset initial mouse xy if scale is changed
@@ -191,9 +215,10 @@ class Selector(wx.MiniFrame):
 
     def OnPaint(self, evt):
         size = self.panel.GetSize() # w,h
+        tile_width = self.frame_width + self.margin
         t_interval = self.tick_option[self.current_tick_option][0] # ms
-        start_idx = -math.ceil((size[0] // 2) / (self.frame_width + self.margin)) - 1
-        end_idx = math.ceil((size[0] // 2) / (self.frame_width + self.margin))
+        start_idx = -round((self.window_width / tile_width) // 2) - 1 # left
+        end_idx = -start_idx # right
 
         dc = wx.PaintDC(self.panel)
         dc.SetBrush(wx.Brush(wx.Colour(0, 0, 0, 128)))
@@ -201,22 +226,54 @@ class Selector(wx.MiniFrame):
         # paint text on top center
         dc.SetFont(wx.Font(15, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
         dc.DrawText('Tick: ' + self.tick_option[self.current_tick_option][1], size[0] // 2 - 60, 0)
-        
-        for idx in range(start_idx, end_idx):
-            dc.SetPen(wx.TRANSPARENT_PEN)
-            center_idx = -(self.x_delta // (self.frame_width + self.margin))
-            x = size[0] // 2 + idx * (self.frame_width + self.margin) + (self.x_delta % (self.frame_width + self.margin))
-            t_bound = [
-                self.init_time + self.x_delta + idx * t_interval,
-                self.init_time + self.x_delta + (idx + 1) * t_interval
+        # sensor area
+        sensor = {}
+        corrected_x = self.x_delta
+        center_idx = 0
+        t_bounds = {}
+        for idx in range(start_idx, end_idx+1):
+            if (idx - 0.5 <= self.x_delta / tile_width < idx + 0.5):
+                center_idx = idx # idx=0 is always around w//2. idx - center_idx is unchanged in mouse moving
+
+        for idx in range(start_idx, end_idx+1):
+            t_bounds[idx] = [
+                int(self.init_time + (idx - center_idx - 0.5) * t_interval),
+                int(self.init_time + (idx - center_idx + 0.5) * t_interval)
             ]
-            if (x - size[0] // 2) * (x + self.frame_width - size[0] // 2) <= 0:
-                dc.SetPen(wx.Pen(wx.Colour(30, 200, 30, 250), 2))
-            dc.DrawRectangle(x, self.draw_y, self.frame_width, self.frame_height)
-            if idx + center_idx < 0:
-                dc.DrawText(str(idx + center_idx), x+2, self.draw_y + self.frame_height - 20)
+            sensor[idx] = VIDEO_ANNO.query_ticks(t_bounds[idx][0], t_bounds[idx][1])
+
+        if (len(sensor[0]) > 0): # select valid tick, freeze motion animation
+            corrected_x = 0
+            
+        for idx in range(start_idx, end_idx+1):
+            dc.SetPen(wx.TRANSPARENT_PEN)
+            draw_x = round(size[0] // 2 + (idx-1) * tile_width + (corrected_x + 0.5*tile_width) % tile_width)
+            if (draw_x - size[0] // 2) * (draw_x + tile_width - size[0] // 2) <= 0: # now selected rectangle
+                dc.SetPen(wx.Pen(wx.Colour(233, 232, 88, 250), 2))
+            query_result = sensor[idx]
+            # TODO banner will not move if mouse is on annotated ticks
+            if 'image' in query_result and 'comment_only' in query_result:
+                dc.SetBrush(wx.Brush(wx.Colour(64, 150, 243, 200)))
+                dc.DrawRectangle(draw_x, self.draw_y + self.frame_height // 2, self.frame_width, self.frame_height // 2)
+                dc.SetBrush(wx.Brush(wx.Colour(68, 194, 146, 200)))
+                dc.DrawRectangle(draw_x, self.draw_y, self.frame_width, self.frame_height // 2)
+            elif 'image' in query_result: # blue
+                dc.SetBrush(wx.Brush(wx.Colour(64, 150, 243, 200)))
+                dc.DrawRectangle(draw_x, self.draw_y, self.frame_width, self.frame_height)
+            elif 'comment_only' in query_result: # green
+                dc.SetBrush(wx.Brush(wx.Colour(68, 194, 146, 200)))
+                dc.DrawRectangle(draw_x, self.draw_y, self.frame_width, self.frame_height)
             else:
-                dc.DrawText(str(idx + center_idx), x+2, self.draw_y + 2)
+                dc.SetBrush(wx.Brush(wx.Colour(0, 0, 0, 128)))
+                dc.DrawRectangle(draw_x, self.draw_y, self.frame_width, self.frame_height)
+
+            dc.SetFont(wx.Font(15, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+            dc.DrawText(str(idx - center_idx), draw_x+2, self.draw_y + self.frame_height - 20)
+            #else:
+            #    dc.DrawText(str(idx), draw_x+2, self.draw_y + 2)
+            dc.SetFont(wx.Font(8, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+            dc.DrawText(str(t_bounds[idx][0]), draw_x+2, self.draw_y + self.frame_height + 10)
+            dc.DrawText(str(t_bounds[idx][1]), draw_x+2, self.draw_y + self.frame_height + 20)
 
         # draw center dash line
         dc.SetPen(wx.Pen('black', 2))
@@ -228,7 +285,7 @@ class Selector(wx.MiniFrame):
         
         # send event to parent
         delta_tick = self.tick_option[self.current_tick_option][0] / (self.frame_width + self.margin) * x_delta
-        return x_delta, round(delta_tick + self.init_time)
+        return x_delta, round(-delta_tick + self.init_time)
 
     def OnMotion(self, evt):
         mouse_x = evt.GetPosition().x
@@ -417,7 +474,7 @@ class VideoAnnotator(wx.Frame):
                 self.comment.SetFocus()
         elif code == ord('s') or code == ord('S'): 
             if (not self.selecting) and (self.player.get_media() is not None):
-                self.CreateAnnotation(self.player.get_time(), 'Annotation', self.comment.GetValue())
+                self.StartImageAnnotator(self.player.get_time(), 'Annotation', self.comment.GetValue())
         elif code == wx.WXK_SPACE:
             self.OnPause(evt)
     
@@ -429,7 +486,7 @@ class VideoAnnotator(wx.Frame):
         ori_size = self.player.video_get_size()
         wh_ratio = ori_size[0] / ori_size[1]
         vs = self.videopanel.GetSize()
-        if vs[0]/vs[1] < wh_ratio:
+        if vs[0] / vs[1] < wh_ratio:
             w, h = vs[0], round(vs[0] / wh_ratio)
             w_offset, h_offset = 0, (vs[1] - h) // 2
         else:
@@ -440,7 +497,7 @@ class VideoAnnotator(wx.Frame):
         wximg = wx.Bitmap(wximg)
         dc.DrawBitmap(wximg, w_offset, h_offset)
     
-    def CreateAnnotation(self, tick, type, comment):
+    def StartImageAnnotator(self, tick, type, comment):
         # take a snapshoot and boot image annotator
         img_dir = joined('video_output', self.video_names[self.video_idx], 'images')
         save_folder = joined('video_output', self.video_names[self.video_idx], 'saved_imgs')
@@ -459,7 +516,7 @@ class VideoAnnotator(wx.Frame):
             if stop_status:
                 self.stop.Disable()
             
-            img_annotator = ImageAnnotator(addi_params={
+            ImageAnnotator(addi_params={
                 'img_dir': img_dir,
                 'save_folder': save_folder,
                 'init_img_name': img_name,
@@ -472,10 +529,13 @@ class VideoAnnotator(wx.Frame):
             # ['tick', 'type', 'videoname', 'img_name', 'region_count', 'sample_attr', 'frame_attr']
             reg_dict = {
                 'tick': self.player.get_time(),
-                'type': 'pic',
+                'type': 'image',
                 'video_name': self.video_names[self.video_idx],
+                'img_name': img_name,
                 'region_count':n_region
             }
+            VIDEO_ANNO.register(reg_dict)
+
             if play_status:
                 self.play.Enable()
             if stop_status:
@@ -486,10 +546,31 @@ class VideoAnnotator(wx.Frame):
             self.Raise() # fetch focus
 
     def OnFinishComment(self, evt):
+        # register annotation
+        # TODO add annotation check
+        # ['tick', 'type', 'videoname', 'img_name', 'region_count', 'sample_attr', 'frame_attr', 'comment']
+        if self.comment_info is not None:
+            reg_dict = {
+                'tick': self.player.get_time(),
+                'type': 'comment_only',
+                'video_name': self.video_names[self.video_idx],
+                'comment': self.comment_info['comment']
+            }
+            sample_attr = []
+            for s in self.comment_info['fields']:
+                s = str(s)
+                if s.startswith('frm@'):
+                    reg_dict['frame_attr'] = s.split('@')[-1]
+                else:
+                    num, attr = s.split('@')
+                    sample_attr.append((num, attr))
+            if len(sample_attr) > 0:
+                reg_dict['sample_attr'] = ';'.join([s[1] for s in sorted(sample_attr, key=lambda x:x[0])])
+            VIDEO_ANNO.register(reg_dict)
         self.commentpanel.Hide()
         self.videopanel.Show()
         self.comment.SetEditable(False)
-
+        self.comment_info = None
     
     def OnInputComment(self, evt):
         # run regex
@@ -508,6 +589,7 @@ class VideoAnnotator(wx.Frame):
         # update comment
         unmatched = ' '.join([s for s in spt if (s not in result) and (s.strip() != '')])
         self.comment_info = {
+            'comment': input_str, # original comment
             'fields': result,
             'unmatched':  unmatched
         }

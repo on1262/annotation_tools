@@ -12,10 +12,15 @@ image_annotation:
 
 # 视频标注软件的配置文件
 video_annotation:
+  # 是否在Selector中反转鼠标滚轮方向
+  selector_reverse_mouse_wheel: false
+  # 是否在Selector中反转时间的微调方向
+  selector_reverse_time_direction: false
+  
   # 注释中所有标签
   comment:
     # 每一个独立的神经标注所需的标签
     sample_keys: ['OK', 'HARD', 'QUEST', 'SHP', 'HN']
     # 整张图片所需的标签
     frame_keys: ['P1', 'P2', 'P3', 'NONE']
-    
+
