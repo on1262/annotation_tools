@@ -5,6 +5,7 @@ cache/
 video_cache/
 video_output/
 video_input/
+video_annotation/
 
 __pycache__/
 .vscode/

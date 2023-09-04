@@ -281,6 +281,7 @@ class ImageAnnotator():
                     else:
                         print('已经是最后一张图片了')
             elif key == 27:
+                cv2.destroyAllWindows()
                 return
     
     def save_img(self):
