@@ -193,6 +193,7 @@ class Selector(wx.MiniFrame):
         self.window_width = 15*(self.frame_width + self.margin)
         self.draw_y = self.panel.GetSize().GetHeight() // 2 + self.frame_height // 2
         self.locked = False
+        self.center_idx = 0
 
     def OnMouseWheel(self, evt):
         # reset initial mouse xy if scale is changed
@@ -247,11 +248,16 @@ class Selector(wx.MiniFrame):
         # sensor area
         sensor = {}
         corrected_x = self.x_delta
-        center_idx = 0
+        
         t_bounds = {}
-        for idx in range(start_idx, end_idx+1):
+        
+        for idx in range(start_idx, end_idx+1): # do not use round here, it will cause bugs
             if (idx - 0.5 <= self.x_delta / tile_width < idx + 0.5):
                 center_idx = idx # idx=0 is always around w//2. idx - center_idx is unchanged in mouse moving
+
+        if self.center_idx != center_idx: # NOTE: Unlock to trigger Parent.OnVideoMotion if hovering contignous valid ticks
+            self.locked = False
+            self.center_idx = center_idx
 
         for idx in range(start_idx, end_idx+1):
             t_bounds[idx] = [
@@ -268,12 +274,14 @@ class Selector(wx.MiniFrame):
         else:
             if self.locked:
                 self.locked = False
+
         
         for idx in range(start_idx, end_idx+1):
-            dc.SetPen(wx.TRANSPARENT_PEN)
             draw_x = round(size[0] // 2 + (idx-1) * tile_width + (corrected_x + 0.5*tile_width) % tile_width)
-            if (draw_x - size[0] // 2) * (draw_x + tile_width - size[0] // 2) <= 0: # now selected rectangle
+            if (draw_x - size[0] // 2) != 0 and  (draw_x - size[0] // 2) * (draw_x + tile_width - size[0] // 2) <= 0: # now selected rectangle
                 dc.SetPen(wx.Pen(wx.Colour(233, 232, 88, 250), 2))
+            else:
+                dc.SetPen(wx.TRANSPARENT_PEN)
             _, query_result = sensor[idx]
             # banner will not move if mouse is on annotated ticks
             if 'image' in query_result and 'comment_only' in query_result:

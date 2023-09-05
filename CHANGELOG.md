@@ -11,8 +11,11 @@
 
 - 按ESC关闭ImageAnnotator时未响应(fixed)
 - 保存标注csv时，不存在的key会报错(fixed)
+- 鼠标在两个连续的有效帧之间进度条不会跳动(fixed)
+- (潜在，尚未稳定产生)center idx和idx不同步跳变，导致帧位置跳变
 
 ## Fixed
 
 - Selector在有效帧能够停留
 - 转到给定帧时会自动更新comment, 并且指针指向最后
+- 同时存在两个标亮框
