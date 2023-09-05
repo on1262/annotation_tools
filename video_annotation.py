@@ -42,7 +42,7 @@ import os
 from os.path import basename, expanduser, isfile, exists, join as joined
 import sys
 import math
-from configs import GBL_CONF
+from configs import GBL_CONF, isWin, isMacOS
 import numpy as np
 import re, csv
 from image_annotation import ImageAnnotator, GetCommentImg
@@ -105,11 +105,10 @@ class AnnotationData():
             self.sorted_keys.append(tick)
             self.sorted_keys = sorted(self.sorted_keys)
         else: # overwrite value
-            for key in self.data[tick]:
-                if key in reg_dict:
-                    if key == 'type' and self.data[tick][key] == 'image': # comment will not over write picture
-                        continue
-                    self.data[tick][key] = reg_dict[key]
+            for key in reg_dict:
+                if key == 'type' and self.data[tick][key] == 'image': # comment will not over write picture
+                    continue
+                self.data[tick][key] = reg_dict[key]
         self._dirty = True
 
     def query_ticks(self, t_min, t_max):
@@ -143,7 +142,8 @@ def create_file_folder():
     paths = [
         'video_input',
         'video_annotation',
-        'video_output'
+        'video_output',
+        'video_cache'
     ]
     for p in paths:
         if not exists(p):
@@ -161,6 +161,8 @@ class Selector(wx.MiniFrame):
         wx.MiniFrame.__init__(self, parent, -1, 'Floating Panel', style=wx.NO_BORDER | wx.FRAME_FLOAT_ON_PARENT)
         self.SetTransparent(150)
         self.panel = wx.Panel(self, -1)
+        if isWin:
+            self.panel.SetBackgroundStyle(wx.BG_STYLE_PAINT)
         self.panel.Bind(wx.EVT_PAINT, self.OnPaint)
         self.panel.Bind(wx.EVT_LEFT_UP, self.OnLeftUp)
         self.panel.Bind(wx.EVT_RIGHT_UP, self.OnRightUp)
@@ -239,8 +241,13 @@ class Selector(wx.MiniFrame):
         start_idx = -round((self.window_width / tile_width) // 2) - 1 # left
         end_idx = -start_idx # right
 
-        dc = wx.PaintDC(self.panel)
-        dc.SetBrush(wx.Brush(wx.Colour(0, 0, 0, 128)))
+        if isMacOS:
+            dc = wx.PaintDC(self.panel)
+        else:
+            dc = wx.AutoBufferedPaintDC(self.panel)
+            dc.Clear()
+        alpha = 128 if isMacOS else 255 # transparent is not supported in windows
+        dc.SetBrush(wx.Brush(wx.Colour(0, 0, 0, alpha)))
 
         # paint text on top center
         dc.SetFont(wx.Font(15, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
@@ -248,7 +255,7 @@ class Selector(wx.MiniFrame):
         # sensor area
         sensor = {}
         corrected_x = self.x_delta
-        
+        center_idx = 0 # avoid center_idx reference missing
         t_bounds = {}
         
         for idx in range(start_idx, end_idx+1): # do not use round here, it will cause bugs
@@ -285,18 +292,21 @@ class Selector(wx.MiniFrame):
             _, query_result = sensor[idx]
             # banner will not move if mouse is on annotated ticks
             if 'image' in query_result and 'comment_only' in query_result:
-                dc.SetBrush(wx.Brush(wx.Colour(64, 150, 243, 200)))
+                dc.SetBrush(wx.Brush(wx.Colour(64, 150, 243, alpha)))
                 dc.DrawRectangle(draw_x, self.draw_y + self.frame_height // 2, self.frame_width, self.frame_height // 2)
-                dc.SetBrush(wx.Brush(wx.Colour(68, 194, 146, 200)))
+                dc.SetBrush(wx.Brush(wx.Colour(68, 194, 146, alpha)))
                 dc.DrawRectangle(draw_x, self.draw_y, self.frame_width, self.frame_height // 2)
             elif 'image' in query_result: # blue
-                dc.SetBrush(wx.Brush(wx.Colour(64, 150, 243, 200)))
+                dc.SetBrush(wx.Brush(wx.Colour(64, 150, 243, alpha)))
                 dc.DrawRectangle(draw_x, self.draw_y, self.frame_width, self.frame_height)
             elif 'comment_only' in query_result: # green
-                dc.SetBrush(wx.Brush(wx.Colour(68, 194, 146, 200)))
+                dc.SetBrush(wx.Brush(wx.Colour(68, 194, 146, alpha)))
                 dc.DrawRectangle(draw_x, self.draw_y, self.frame_width, self.frame_height)
             else:
-                dc.SetBrush(wx.Brush(wx.Colour(0, 0, 0, 128)))
+                if isWin:
+                    dc.SetBrush(wx.Brush(wx.Colour(128, 128, 128, alpha)))
+                else:
+                    dc.SetBrush(wx.Brush(wx.Colour(0, 0, 0, alpha)))
                 dc.DrawRectangle(draw_x, self.draw_y, self.frame_width, self.frame_height)
 
             dc.SetFont(wx.Font(15, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
@@ -413,7 +423,6 @@ class VideoAnnotator(wx.Frame):
         self.stop.Disable()
         self.time_label = wx.StaticText(ctrlpanel, label="00:00:00/0")
         self.comment = wx.TextCtrl(ctrlpanel, style=wx.TE_PROCESS_ENTER | wx.TE_MULTILINE | wx.TE_RICH2)
-        self.comment.SetEditable(False)
         self.comment.SetMaxSize((1920, 30))
         self.comment.Bind(wx.EVT_TEXT_ENTER, self.OnFinishComment)
         self.comment.Bind(wx.EVT_TEXT, self.OnInputComment)
@@ -467,8 +476,17 @@ class VideoAnnotator(wx.Frame):
         # image annotating flag
         self.img_annotating = False
 
+        if isMacOS:
+            self.comment.SetEditable(False)
+        else:
+            self.comment.Disable()
+        
+
         # VLC player controls
-        self.Instance = vlc.Instance()
+        if isWin:
+            self.Instance = vlc.Instance(['--no-xlib', '--vout', 'mmal_vout'])
+        else:
+            self.Instance = vlc.Instance()
         self.player = self.Instance.media_player_new()
 
     def init_regex(self):
@@ -571,7 +589,10 @@ class VideoAnnotator(wx.Frame):
                     self.commentpanel.Show()
                 else:
                     self.comment_img_path = None
-                self.comment.SetEditable(True)
+                if isMacOS:
+                    self.comment.SetEditable(True)
+                else:
+                    self.comment.Enable()
                 # set cursor to the end
                 self.comment.SetInsertionPointEnd()
                 self.comment.SetFocus()
@@ -579,7 +600,10 @@ class VideoAnnotator(wx.Frame):
             if (not self.selecting) and (self.player.get_media() is not None):
                 self.StartImageAnnotator(self.player.get_time(), 'Annotation', self.comment.GetValue())
         elif code == wx.WXK_SPACE:
-            self.OnPause(evt)
+            if self.player.is_playing():
+                self.OnPause(None)
+            else:
+                self.OnPlay(None)
     
     def OnPaintCommentImg(self, evt):
         dc = wx.PaintDC(self.commentpanel)
@@ -672,7 +696,10 @@ class VideoAnnotator(wx.Frame):
             VIDEO_ANNO.register(reg_dict)
         self.commentpanel.Hide()
         self.videopanel.Show()
-        self.comment.SetEditable(False)
+        if isMacOS:
+            self.comment.SetEditable(False)
+        else:
+            self.comment.Disable()
         self.comment_info = None
     
     def OnInputComment(self, evt):
@@ -723,6 +750,11 @@ class VideoAnnotator(wx.Frame):
         # load video
         self.Media = self.Instance.media_new(self.video_path)
         self.player.set_media(self.Media)
+        if isWin:
+            #self.player.get_media().get_mrl().replace("input_clock=system", "input_clock=none") # disable clock sync
+            self.player.set_fullscreen(False)
+            vlc.libvlc_video_set_mouse_input(self.player, False)
+            vlc.libvlc_video_set_key_input(self.player, False)
         # Report the title of the file chosen
         title = self.player.get_title()
         # if an error was encountred while retrieving the title,
@@ -750,13 +782,17 @@ class VideoAnnotator(wx.Frame):
             self.LoadVideoAndAnnotation()
             self.seeking = False
             # Try to launch the media, if this fails display an error message
-        elif self.player.play():  # == -1
-            self.errorDialog("Unable to play.")
-        elif (not self.seeking) and (not self.img_annotating):
-            self.timer.Start(100)  # XXX millisecs
-            self.play.Disable()
-            self.pause.Enable()
-            self.stop.Enable()
+        if (not self.seeking) and (not self.img_annotating):
+            flag = self.player.play()  # == -1
+            if flag:
+                self.errorDialog("Can not play")
+            else:
+                self.timer.Start(100)  # XXX millisecs
+                self.play.Disable()
+                self.pause.Enable()
+                self.stop.Enable()
+                if isWin:
+                    self.videopanel.SetFocus()
 
     def OnVideoLeftClick(self, evt):
         if self.selecting:
@@ -767,6 +803,8 @@ class VideoAnnotator(wx.Frame):
             query_result = VIDEO_ANNO.query_tick(self.player.get_time())
             if query_result is not None and 'comment' in query_result:
                 self.comment.SetValue(query_result['comment'])
+            else:
+                self.comment.SetValue('')
             self.videopanel.SetFocus()
         else:
             self.selecting = True
@@ -794,22 +832,19 @@ class VideoAnnotator(wx.Frame):
     def GetTimeString(self, tick):
         tick = int(tick)
         hour = tick // (1000*60*60)
-        min = tick // (1000*60)
-        sec = tick // 1000
+        min = (tick % (1000*60*60)) // (1000*60)
+        sec = (tick % (1000*60)) // 1000
         return '%02d:%02d:%02d' % (hour, min, sec)
     
     def OnPause(self, evt):
         """Pause the player.
         """
-        if self.seeking or self.img_annotating or not self.player.get_media():
+        if not self.player.get_media():
             return
         if self.player.is_playing():
             self.play.Enable()
             self.pause.Disable()
-        else:
-            self.play.Disable()
-            self.pause.Enable()
-        self.player.pause()
+            self.player.set_pause(1)
 
     def OnStop(self, evt):
         """Stop the player.
@@ -845,8 +880,8 @@ class VideoAnnotator(wx.Frame):
         """Seek the player according to the time slider.
         """
         if not self.seeking:
-            self.seeking = True
             self.OnPause(None)
+            self.seeking = True
             self.seek_timer.Start(100)  # XXX millisecs
 
     def OnSeekTimer(self, evt):

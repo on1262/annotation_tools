@@ -1,6 +1,6 @@
 import cv2
 import os
-from configs import GBL_CONF
+from configs import GBL_CONF, isWin, isMacOS
 import random
 
 def GetCommentImg(img_path, out_path):
@@ -57,7 +57,13 @@ class ImageAnnotator():
         # single image mode: if enabled, press 'S' will save current image and exit.
         self.single_img_mode = False if not addi_params else addi_params['single_img_mode']
 
-        cv2.namedWindow(self.unique_name, cv2.WINDOW_AUTOSIZE)
+        cv2.namedWindow(self.unique_name, cv2.WINDOW_NORMAL)
+        if isWin:
+            win_scale = self.conf['init_resize']['windows']
+        elif isMacOS:
+            win_scale = self.conf['init_resize']['macOS']
+        wh, ww = round(win_scale * 1080), round(win_scale * 1920)
+        cv2.resizeWindow(self.unique_name, ww, wh)
         self.init_imgs(self.img_index)
         self.main_loop()
 
@@ -186,6 +192,8 @@ class ImageAnnotator():
             xm, ym = self.last_mouse_xy
             newscale = 1.0
             flag = self.conf['reverse_mouse_wheel']
+            if isWin:
+                y = 1 if flags > 0 else -1
             if (flag and y < 0) or ((not flag) and y > 0):
                 newscale = min(self.scale * self.conf['wheel_zoom_factor'][1], self.conf['scale_range'][1])
             elif y != 0:
