@@ -637,6 +637,7 @@ class VideoAnnotator(wx.Frame):
             # disable components to prevent time changing
             self.timeslider.Disable()
             play_status = self.play.IsEnabled()
+            pause_status = self.pause.IsEnabled()
             stop_status = self.stop.IsEnabled()
             if play_status:
                 self.play.Disable()
@@ -665,12 +666,16 @@ class VideoAnnotator(wx.Frame):
 
             if play_status:
                 self.play.Enable()
+            if pause_status:
+                self.pause.Enable()
             if stop_status:
                 self.stop.Enable()
             self.img_annotating = False
             self.timeslider.Enable()
             
             self.Raise() # fetch focus
+            if isWin:
+                self.videopanel.SetFocus()
 
     def OnFinishComment(self, evt):
         # register annotation
@@ -845,6 +850,8 @@ class VideoAnnotator(wx.Frame):
             self.play.Enable()
             self.pause.Disable()
             self.player.set_pause(1)
+            if isWin:
+                self.videopanel.SetFocus()
 
     def OnStop(self, evt):
         """Stop the player.
@@ -861,6 +868,8 @@ class VideoAnnotator(wx.Frame):
         self.play.Enable()
         self.pause.Disable()
         self.stop.Disable()
+        if isWin:
+            self.videopanel.SetFocus()
 
     def OnSliderTimer(self, evt):
         """Update the time slider according to the current movie time.

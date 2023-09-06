@@ -8,7 +8,7 @@ if __name__ == "__main__":
     parser.add_argument('--type', type=str, default='image', help='image or video')
     args = parser.parse_args()
     if args.type == 'image':
-        tool = ImageAnnotator()
+        tool = ImageAnnotator(addi_params=None)
     elif args.type == 'video':
         start_video_annotation()
 

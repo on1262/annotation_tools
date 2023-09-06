@@ -56,7 +56,7 @@ class ImageAnnotator():
         self.watch_mode = False
         # single image mode: if enabled, press 'S' will save current image and exit.
         self.single_img_mode = False if not addi_params else addi_params['single_img_mode']
-
+        
         cv2.namedWindow(self.unique_name, cv2.WINDOW_NORMAL)
         if isWin:
             win_scale = self.conf['init_resize']['windows']
@@ -243,6 +243,9 @@ class ImageAnnotator():
 
     def main_loop(self):
         while(1):
+            if isWin and cv2.getWindowProperty(self.unique_name, cv2.WND_PROP_VISIBLE) < 1:
+                cv2.destroyAllWindows()
+                return
             key = cv2.waitKey(0)
             if key == ord('q'): # decrease brush size
                 self.brush_size = round(max(self.min_size, self.brush_size * 0.7))
