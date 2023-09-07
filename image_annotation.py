@@ -56,7 +56,8 @@ class ImageAnnotator():
         self.watch_mode = False
         # single image mode: if enabled, press 'S' will save current image and exit.
         self.single_img_mode = False if not addi_params else addi_params['single_img_mode']
-        
+        # save option
+        self.dirty = False
         cv2.namedWindow(self.unique_name, cv2.WINDOW_NORMAL)
         if isWin:
             win_scale = self.conf['init_resize']['windows']
@@ -64,7 +65,7 @@ class ImageAnnotator():
             win_scale = self.conf['init_resize']['macOS']
         wh, ww = round(win_scale * 1080), round(win_scale * 1920)
         cv2.resizeWindow(self.unique_name, ww, wh)
-        self.init_imgs(self.img_index)
+        self.init_img(self.img_index)
         self.main_loop()
 
     def img_title(self):
@@ -79,7 +80,7 @@ class ImageAnnotator():
     def init_window(self):
         cv2.setMouseCallback(self.unique_name, self.mouse_callback, None) # type: ignore
     
-    def init_imgs(self, index):
+    def init_img(self, index):
         if index not in self.img_cache.keys():
             self.real_img = cv2.imread(self.img_paths[index])
         else:
@@ -87,6 +88,7 @@ class ImageAnnotator():
         self.display_img = self.real_img.copy()
         
         cv2.imshow(self.unique_name, self.real_img)
+        self.dirty = False
         self.init_window()
         
         self.drawing = False
@@ -179,6 +181,7 @@ class ImageAnnotator():
                 xm, ym = (self.scale_center[0] + (x - 0.5*w) / self.scale, self.scale_center[1] + (y - 0.5*h) / self.scale)
                 xm, ym = round(xm), round(ym)
                 # print(f'xm: {xm}, ym: {ym}')
+                self.dirty = True
                 cv2.circle(canvas, (xm, ym), self.brush_size, self.color, -1)
                 self.real_img = canvas
                 self.rescale_window(w // 2, h // 2, 1.0, self.scale)  
@@ -237,7 +240,7 @@ class ImageAnnotator():
         self.turn_off_watch_mode()
         self.img_cache[self.img_index] = self.real_img.copy()
         self.img_index = new_index
-        self.init_imgs(self.img_index)
+        self.init_img(self.img_index)
         if last_watch_mode:
             self.turn_on_watch_mode()
 
@@ -252,7 +255,7 @@ class ImageAnnotator():
                 self.draw_circle(self.last_mouse_xy[0], self.last_mouse_xy[1])
             elif key == ord('r'): # reset
                 self.img_cache.pop(self.img_index, None)
-                self.init_imgs(self.img_index)
+                self.init_img(self.img_index)
             elif key == ord('e'): # increase brush size
                 self.brush_size = round(min(100, self.brush_size / 0.7))
                 self.draw_circle(self.last_mouse_xy[0], self.last_mouse_xy[1])
@@ -267,6 +270,8 @@ class ImageAnnotator():
                 else:
                     new_index = min(self.img_index + 1, len(self.img_paths) - 1)
                 if new_index != self.img_index:
+                    if self.single_img_mode and self.dirty: # save image in this mode
+                        self.save_img()
                     self.select_img(new_index)
             elif key == ord('-') or key == ord('='):
                 if key == ord('-'):
@@ -286,7 +291,7 @@ class ImageAnnotator():
                     self.img_cache[self.img_index] = self.real_img.copy()
                     if self.img_index < len(self.img_paths) - 1:
                         self.img_index += 1
-                        self.init_imgs(self.img_index)
+                        self.init_img(self.img_index)
                         if last_watch_mode:
                             self.turn_on_watch_mode()
                     else:
@@ -296,6 +301,9 @@ class ImageAnnotator():
                 return
     
     def save_img(self):
+        if (not self.dirty) and (self.conf['save_blank'] == False):
+            print('注意：当前图片没有进行任何标注，不保存')
+            return
         result = cv2.imwrite(self.save_paths[self.img_index], self.real_img, [cv2.IMWRITE_JPEG_QUALITY, 100])
         if result:
             self.saved_flag[self.img_index] = True
