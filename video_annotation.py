@@ -358,12 +358,7 @@ class Selector(wx.MiniFrame):
     def OnMotion(self, evt):
         mouse_x = evt.GetPosition().x
         x_delta, new_tick = self.GetCurrentMouseTick(mouse_x)
-        if new_tick <= 0 or new_tick > self.Parent.timeslider.GetMax():
-            # move init mouse position if out of range
-            self.init_mouse_x = mouse_x
-            self.x_delta = 0
-            self.init_time = self.Parent.player.get_time()
-        else:
+        if 0 < new_tick < self.Parent.timeslider.GetMax():
             self.x_delta = x_delta
             if not self.locked:
                 self.Parent.OnVideoMotion(new_tick)
