@@ -173,8 +173,8 @@ def create_file_folder():
             po = joined('video_output', pv)
             if not exists(po):
                 os.makedirs(po, exist_ok=True)
-                os.makedirs(joined(po, 'saved_imgs'), exist_ok=True)
-                os.makedirs(joined(po, 'images'), exist_ok=True)
+                os.makedirs(joined(po, 'annotated_imgs'), exist_ok=True)
+                os.makedirs(joined(po, 'origin_imgs'), exist_ok=True)
     # clear cache dir
     if isMacOS:
         subprocess.call(['rm', '-rf', 'video_cache'])
@@ -583,8 +583,8 @@ class VideoAnnotator(wx.Frame):
             else:
                 shutil.rmtree(output_folder, ignore_errors=True)
             os.makedirs(output_folder, exist_ok=True)
-        os.makedirs(joined(output_folder, 'images'), exist_ok=True)
-        os.makedirs(joined(output_folder, 'saved_imgs'), exist_ok=True)
+        os.makedirs(joined(output_folder, 'origin_imgs'), exist_ok=True)
+        os.makedirs(joined(output_folder, 'annotated_imgs'), exist_ok=True)
         # create combined csv file:
         combined_csv_path = joined(output_folder, 'combined_data.csv')
         if isWin and exists(combined_csv_path) and is_occupied(combined_csv_path):
@@ -605,14 +605,14 @@ class VideoAnnotator(wx.Frame):
                         reader = csv.DictReader(fc)
                         for row in reader:
                             if row['type'] == 'image':
-                                img_path = joined('video_output', row['videoname'], 'images', row['img_name'])
-                                saved_img_path = joined('video_output', row['videoname'], 'saved_imgs', row['img_name'])
+                                img_path = joined('video_output', row['videoname'], 'origin_imgs', row['img_name'])
+                                saved_img_path = joined('video_output', row['videoname'], 'annotated_imgs', row['img_name'])
                                 if isMacOS:
-                                    subprocess.call(['cp', img_path, joined(output_folder, 'images', row['img_name'])])
-                                    subprocess.call(['cp', saved_img_path, joined(output_folder, 'saved_imgs', row['img_name'])])
+                                    subprocess.call(['cp', img_path, joined(output_folder, 'origin_imgs', row['img_name'])])
+                                    subprocess.call(['cp', saved_img_path, joined(output_folder, 'annotated_imgs', row['img_name'])])
                                 else:
-                                    shutil.copy(img_path, joined(output_folder, 'images', row['img_name']))
-                                    shutil.copy(saved_img_path, joined(output_folder, 'saved_imgs', row['img_name']))
+                                    shutil.copy(img_path, joined(output_folder, 'origin_imgs', row['img_name']))
+                                    shutil.copy(saved_img_path, joined(output_folder, 'annotated_imgs', row['img_name']))
                             writer.writerow([v for k, v in row.items()])
         dlg.Update(len(file_list), 'Done')
 
@@ -629,11 +629,13 @@ class VideoAnnotator(wx.Frame):
         if code == ord('c') or code == ord('C'):
             # add comment though text
             if (not self.selecting) and (not self.player.is_playing()):
-                comment_img_path = joined('video_output', self.video_names[self.video_idx], 'saved_imgs', 
+                annotated_path = joined('video_output', self.video_names[self.video_idx], 'annotated_imgs', 
                     str.split(self.video_names[self.video_idx], '.')[0] + '@' + str(self.player.get_time()) + '.jpg')
-                out_path = joined('video_cache', str.split(self.video_names[self.video_idx], '.')[0] + '@' + str(self.player.get_time()) + '.jpg')
-                if exists(comment_img_path):
-                    self.comment_img_path = out_path
+                comment_out_path = joined('video_cache', str.split(self.video_names[self.video_idx], '.')[0] + '@' + str(self.player.get_time()) + '.jpg')
+                if exists(annotated_path) and (not exists(comment_out_path)): # create comment image if cache is clear
+                    GetCommentImg(annotated_path, comment_out_path)
+                if exists(comment_out_path):
+                    self.comment_img_path = comment_out_path
                     self.videopanel.Hide()
                     self.commentpanel.SetSize(self.videopanel.GetSize())
                     self.commentpanel.Show()
@@ -678,11 +680,11 @@ class VideoAnnotator(wx.Frame):
     
     def StartImageAnnotator(self):
         # take a snapshoot and boot image annotator
-        img_dir = joined('video_output', self.video_names[self.video_idx], 'images')
-        save_folder = joined('video_output', self.video_names[self.video_idx], 'saved_imgs')
+        img_dir = joined('video_output', self.video_names[self.video_idx], 'origin_imgs')
+        save_folder = joined('video_output', self.video_names[self.video_idx], 'annotated_imgs')
         img_name = str.split(self.video_names[self.video_idx], '.')[0] + '@' + str(self.player.get_time()) + '.jpg'
         out_path = joined('video_cache', str.split(self.video_names[self.video_idx], '.')[0] + '@' + str(self.player.get_time()) + '.jpg')
-        comment_img_path = joined('video_output', self.video_names[self.video_idx], 'saved_imgs',
+        comment_img_path = joined('video_output', self.video_names[self.video_idx], 'annotated_imgs',
             str.split(self.video_names[self.video_idx], '.')[0] + '@' + str(self.player.get_time()) + '.jpg')
         self.player.video_take_snapshot(0, joined(img_dir, img_name), 0, 0)
         if exists(joined(img_dir, img_name)):
@@ -795,6 +797,8 @@ class VideoAnnotator(wx.Frame):
                 return True
             elif result == wx.ID_CANCEL:
                 return False
+            elif result == wx.ID_NO:
+                return True
         else:
             return True
     

@@ -18,7 +18,7 @@ def GetCommentImg(img_path, out_path):
         # add number
         x, y = (labels == label).nonzero()
         x, y = round(x.mean()), round(y.mean())
-        img = cv2.putText(img, str(label), (y, x), cv2.FONT_HERSHEY_SIMPLEX, 3, reverse_color, 2)
+        img = cv2.putText(img, str(label), (y, x), cv2.FONT_HERSHEY_SIMPLEX, 3, reverse_color, 6)
     cv2.imwrite(out_path, img, [cv2.IMWRITE_JPEG_QUALITY, 100])
     return ret - 1 # number of neuros
 
@@ -26,12 +26,12 @@ def GetCommentImg(img_path, out_path):
 class ImageAnnotator():
     def __init__(self, addi_params) -> None:
         self.conf = GBL_CONF['image_annotation']
-        img_dir = "images" if addi_params is None else addi_params['img_dir']
+        img_dir = "origin_imgs" if addi_params is None else addi_params['img_dir']
         self.img_names = sorted([p for p in os.listdir(img_dir) if p.endswith('.jpg')])
         self.img_paths = [os.path.join(img_dir, p) for p in self.img_names]
         self.img_cache = {}
         self.saved_flag = {}
-        self.save_folder = "saved_imgs" if addi_params is None else addi_params['save_folder']
+        self.save_folder = "annotated_imgs" if addi_params is None else addi_params['save_folder']
         self.save_paths = [os.path.join(self.save_folder, p) for p in self.img_names]
         if not addi_params:
             self.img_index = 0
