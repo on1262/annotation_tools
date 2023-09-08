@@ -11,7 +11,7 @@
 1. 打开Anaconda Prompt，创建虚拟环境：`conda create -n anno python=3.11`
 2. 激活虚拟环境：`conda activate anno`
 3. 安装依赖包：`pip install opencv-python pyyaml -i https://pypi.tuna.tsinghua.edu.cn/simple`
-4. (视频标注)安装附加的依赖包: `pip install wxpython python-vlc -i https://pypi.tuna.tsinghua.edu.cn/simple`
+4. (视频标注)安装附加的依赖包: `pip install wxpython python-vlc pywin32 -i https://pypi.tuna.tsinghua.edu.cn/simple`
 
 最后配置程序运行环境：
 1. 在本文件所在目录下创建`images`文件夹，将待标注图片放入该文件夹

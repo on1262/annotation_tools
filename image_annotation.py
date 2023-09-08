@@ -18,7 +18,7 @@ def GetCommentImg(img_path, out_path):
         # add number
         x, y = (labels == label).nonzero()
         x, y = round(x.mean()), round(y.mean())
-        img = cv2.putText(img, str(label), (y, x), cv2.FONT_HERSHEY_SIMPLEX, 1, reverse_color, 2)
+        img = cv2.putText(img, str(label), (y, x), cv2.FONT_HERSHEY_SIMPLEX, 3, reverse_color, 2)
     cv2.imwrite(out_path, img, [cv2.IMWRITE_JPEG_QUALITY, 100])
     return ret - 1 # number of neuros
 
@@ -99,7 +99,7 @@ class ImageAnnotator():
         
         cv2.setWindowTitle(self.unique_name, self.img_title())
 
-        if self.watch_mode:
+        if self.watch_mode or self.single_img_mode:
             self.watch_mode = False
             self.turn_on_watch_mode()
 

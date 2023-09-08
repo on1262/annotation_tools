@@ -11,6 +11,7 @@ __pycache__/
 .vscode/
 
 *.jpg
+!Icon.jpg
 *.docx
 .DS_Store
 *.zip
