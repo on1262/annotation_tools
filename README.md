@@ -1,24 +1,29 @@
-# 基于腹腔镜采集图像的神经标注程序
+# 基于腹腔镜采集数据的神经标注程序
 
 ## 软件部署
 
 首先需要安装Aanaconda3和Python环境：
 1. 选择合适的操作系统，下载Anaconda3: https://www.anaconda.com/download#downloads 国内镜像站为 https://mirrors.tuna.tsinghua.edu.cn/anaconda/archive/
-2. 安装Anaconda3，安装过程中注意勾选“Add Anaconda to my PATH environment variable”选项
-3. 安装完成后，打开Anaconda Prompt，输入`conda --version`，若显示版本号，则安装成功
+2. 在国内配置清华源: https://mirrors.tuna.tsinghua.edu.cn/help/anaconda/
+3. 安装Anaconda3，之后将`Anaconda3/Scripts`添加到环境变量`PATH`中
+4. 在Powershell中运行`conda init powershell`, 重启powershell
+5. 解决一些报错: https://blog.csdn.net/qq_29873023/article/details/104005618
+6. (视频标注)安装VLC Media Player的对应操作系统版本: https://www.videolan.org/vlc/
+7. (视频标注)安装ffmpeg: `conda install ffmpeg -c conda-forge`
 
 之后需要安装依赖包：
 1. 打开Anaconda Prompt，创建虚拟环境：`conda create -n anno python=3.11`
 2. 激活虚拟环境：`conda activate anno`
-3. 安装opencv：`pip install opencv-python`
-4. 安装pyyaml： `pip install pyyaml`
+3. 安装依赖包：`pip install opencv-python pyyaml -i https://pypi.tuna.tsinghua.edu.cn/simple`
+4. (视频标注)安装附加的依赖包: `pip install wxpython python-vlc pywin32 -i https://pypi.tuna.tsinghua.edu.cn/simple`
 
 最后配置程序运行环境：
 1. 在本文件所在目录下创建`images`文件夹，将待标注图片放入该文件夹
 2. 在本文件所在目录下创建`saved_imgs`文件夹，用于保存标注结果
-3. 打开命令行，切换到程序所在目录: `cd /path/to/this/dir`
-4. 激活虚拟环境：`conda activate anno`， 运行程序：`python main.py > log.txt`
-5. 在windows系统下，可以直接双击`windows_run.bat`代替第3、4步， Mac OS环境下运行`mac_run.sh`代替第3、4步
+3. 在Annaconda Navigator下打开`anno`虚拟环境，点击`Open Terminal`，进入虚拟环境的命令行
+4. 打开命令行，切换到程序所在目录: `cd /path/to/this/dir`
+5. 如果想进入图像标注，运行：`python main.py --type image > log.txt`
+6. 如果想进入视频标注，运行：`python main.py --type video > log.txt`
 
 
 一些需要注意的事项：
@@ -31,10 +36,14 @@
 
 ## 程序使用
 
+本程序支持两种标注方式：图像标注和视频标注。
+
+**图像标注软件的使用说明**
+
 标注方式为按住鼠标左键画出标注框内的神经区域，大致覆盖神经的范围即可。
 
 为了提高效率，本软件使用快捷键操作：
-- `鼠标滚轮`：放大、缩小图像
+- `鼠标滚轮`：向前或向后滚动，放大或缩小图片
 - `鼠标左键`：按住并拖动鼠标，画出标注框内的神经区域
 - `鼠标右键`：按住并拖动鼠标，移动图片
 - `Q和E键`：将画笔放大2倍/缩小一半
@@ -44,6 +53,81 @@
 - `R键`：清除当前图片的标注，重新加载原始图片。R键不会覆盖已保存的图片。
 - `W键`：进入观察者模式，标题会同步显示watch mode字样，画笔变成白色圆点。在观察者模式下，saved_imgs中的标注信息会以半透明遮罩的形式覆盖在原图上，便于核对标注区域是否正确。一旦进入画图就会退出该模式，返回正常作图的模式中。如果此前没有保存图片到saved_imgs中，则无法启动观察者模式。在观察者模式下，进行A/D键切换时，如果待切换图片存在标注，则维持该模式不变- 其余按键例如R/S/Q/E键等也可以正常工作。
 - `Esc键`：退出程序
+
+**视频标注软件的使用说明**
+
+在使用视频标注软件前，需要把视频文件转换成`.mp4`格式（可以用格式工厂），确认转换前后分辨率没有损失，之后按照以下文件层级结构放置视频文件：
+
+```
+# .py文件为脚本文件，不要修改
+main.py
+configs.py
+image_annotation.py
+video_annotation.py
+
+# .yml文件是用户配置文件，可以修改
+configs.yaml
+
+# .sh和.bat文件是启动脚本，可以直接运行
+run_image.bat # 启动图像标注软件
+run_video.bat # 启动视频标注软件
+
+video_input # 输入的mp4视频放入此处
+├── video1.mp4
+├── video2.mp4
+├── ...
+└── videoN.mp4
+
+video_annotation # 存放每一个标记帧的时刻、注释、类型等信息，相当于工程文件
+├── video1.csv
+├── video2.csv
+├── ...
+└── videoN.csv
+
+video_output # 输出数据存放在此处
+├── video1
+│   ├── images # 存放截取的视频帧
+│   │   ├── 0001.jpg
+│   │   ├── 0002.jpg
+│   │   ├── ...
+│   │   └── 00NN.jpg
+│   └── saved_imgs # 存放标注像素（不包括注释和类型）
+│       ├── 0001.jpg
+│       ├── 0002.jpg
+│       ├── ...
+│       └── 00NN.jpg
+├── video2
+├── ...
+└── videoN
+```
+
+打开视频标注软件后，菜单栏显示如下：
+- `File`/`Flush Video Folder`: 在重新导入视频后，检测视频并刷新列表
+- `File`/`Close`: 关闭程序，如果标注未保存，会提示
+- `File`/`Toggle Previous Video`: 切换到上一个视频, 如果标注未保存，会提示. `Toggle Next Video`同理
+- `File`/`Save Annotations on Current Video`: 保存当前视频的标注
+- `File`/`Export All Annotations`: 将所有视频的标注导出到`video_annotation/export`中，目标文件夹下的原有内容将被清空
+- `Video List`下的每一项对应一个视频，可以直接选择需要标注的视频
+
+在选择视频后，主界面的播放器会自动播放视频，视频下方有三个按钮，`play/pause`播放/暂停视频，`stop`停止当前视频的播放，提示保存标注。按钮右侧显示`[tick]HH:MM:SS/HH:MM:SS`分别给出当前所处时刻、视频总时长，方框内为时刻转化为毫秒的表示。在按钮下方为一行注释框，用于显示和编辑当前帧的注释。
+
+尽管鼠标直接拖动进度条也可以进行选帧，本软件设计了`快捷选帧器（以下简称Selector）`进行便捷的选帧操作。在载入视频后，单击视频的任意部分即可激活Selector，此时播放器会暂停播放。Selector为一个半透明的方框，内部绘制有顺序排列的若干方块表示一段固定长度，该长度显示在Selector的顶端。例如，若显示Tick=1 second，则一个方块代表1秒长度的视频片段。用户通过`鼠标滑轮`进行尺度缩放，通过`鼠标左键移动`进行视频帧的选择。在选择状态下`鼠标左键`确认跳转到目标帧，`鼠标右键`取消此次选帧。
+
+Selector中被选中的帧被`黄色`框标识，若显示`绿色`，则表示该段视频包含注释信息（注释和标注的区别见之后的讨论），若显示`蓝色`则表示包含图像标注信息，若上下显示不同颜色则表示同时包含两种情况的帧。若包含以上信息的方块被移至中央，则会自动锁定到片段内的第一个有效帧。
+
+退出Selector后，便可以进行标注和注释操作：
+- `S键`进入单帧图像标注，使用方法与图像标注软件基本相同。唯一的区别是再次按下`S键`会保存当前帧并退出图像标注。在图像标注模式下可以用`A/D键`查看之前或之后帧的标注。
+- `C键`进入注释编辑模式。在该模式下，若已经存在图像标注，则自动生成每个独立标注区域的序号用于链接注释信息。此时注释框可编辑并自动获得焦点，写入注释后按`回车键`退出注释编辑模式。
+
+注释编辑模式有一套实时语法检查机制，规则如下：
+- 正确的注释由若干个`独立标注区域片段`和一个`帧属性片段`组成，前者描述一张图像中的每个标注区域（可以理解为每条神经）的属性，后者描述整张图片的属性。在这些片段外插入的任何字符都将被收集并整理成`自由格式注释`，这种注释的背景会被标灰
+- 一个`独立标注区域片段`的起始是一个数字，对应标注区域中显示的数字，紧接着是一个@字符，之后是若干可选的属性，例如`OK`, `HARD`, `QUEST`, `SHP`, `HN`等，这些属性可以在`configs.yml`中配置，每个属性间以英文逗号隔开。
+- 一个`帧属性片段`的起始是`frm`（代表frame），紧接着是一个@字符，之后是若干可选的属性，与独立标注区域片段的属性类似但不同。帧属性用于描述手术的不同阶段。
+- 当上述的两个片段被检出时，会被标注为绿色，可以避免标注时的错误。
+- 注意：这种语法检查并不严格，只是为了避免拼写错误。
+
+**在windows系统下实时拖拽进度条可能会产生滞后或卡顿, 通常在1秒内就能完成同步**
+
 
 ## 标注事项
 

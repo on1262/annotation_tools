@@ -13,3 +13,21 @@ image_annotation:
   scale_range: [1.0, 5.0]
   # watch mode下叠加标记的透明度（0-1）
   watch_mode_alpha: 0.25
+  # 是否保存空白标注
+  save_blank: false
+
+# 视频标注软件的配置文件
+video_annotation:
+  # 是否在Selector中反转鼠标滚轮方向
+  selector_reverse_mouse_wheel: false
+  # 是否在Selector中反转时间的微调方向(暂时不可用)
+  selector_reverse_time_direction: false
+  # 每次拖动进度条后都暂停播放
+  pause_after_seek: true
+  # 注释中所有标签
+  comment:
+    # 每一个独立的神经标注所需的标签
+    sample_keys: ['OK', 'HARD', 'QUEST', 'SHP', 'HN']
+    # 整张图片所需的标签
+    frame_keys: ['P1', 'P2', 'P3', 'NONE']
+
