@@ -1,3 +1,4 @@
+
 from image_annotation import ImageAnnotator
 from video_annotation import start_video_annotation
 import argparse
