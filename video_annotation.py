@@ -825,11 +825,17 @@ class VideoAnnotator(wx.Frame):
         """
         if self.img_annotating or self.selecting:
             return
-        exit_flag = self.AskSavingAnnotation(joined('video_annotation', self.video_names[self.video_idx].replace('.mp4', '.csv')))
-        if exit_flag:
+        if self.video_idx < 0 or self.video_idx >= len(self.video_names):
             self.Destroy()
+        else:
+            exit_flag = self.AskSavingAnnotation(
+                joined('video_annotation', self.video_names[self.video_idx].replace('.mp4', '. csv')))
+            if exit_flag:
+                self.Destroy()
 
     def LoadVideoAndAnnotation(self):
+        if self.video_idx < 0 or self.video_idx >= len(self.video_names):
+            return
         # load annotation
         annotation_path = joined('video_annotation', self.video_names[self.video_idx].replace('.mp4', '.csv'))
         if exists(annotation_path):
