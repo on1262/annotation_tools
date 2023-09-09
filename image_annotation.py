@@ -3,6 +3,7 @@ import os
 from configs import GBL_CONF, isWin, isMacOS
 import random
 
+
 def GetCommentImg(img_path, out_path):
     '''Create a special image that each neuron is colored with a different color and has a number on it
     '''
