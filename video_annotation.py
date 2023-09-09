@@ -746,6 +746,7 @@ class VideoAnnotator(wx.Frame):
             print('截图失败')
 
     def OnFinishComment(self, evt):
+        self.OnInputComment(evt) # NOTE: It is necessary when user do not edit anything before closing. Forcing update comment info at least once.
         # register annotation
         if self.comment_info is not None:
             reg_dict = {

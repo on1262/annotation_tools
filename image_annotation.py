@@ -28,12 +28,22 @@ def GetCommentImg(img_path, out_path):
 class ImageAnnotator():
     def __init__(self, addi_params) -> None:
         self.conf = GBL_CONF['image_annotation']
+        # single image mode
+        self.single_img_mode = False if not addi_params else addi_params['single_img_mode']
+
         img_dir = "origin_imgs" if addi_params is None else addi_params['img_dir']
-        self.img_names = sorted([p for p in os.listdir(img_dir) if p.endswith('.jpg')])
+        if not os.path.exists(img_dir):
+            os.makedirs(img_dir, exist_ok=True)
+        if self.single_img_mode: # sort by tick
+            self.img_names = sorted([p for p in os.listdir(img_dir) if p.endswith('.jpg')], key=lambda x: int(x.split('@')[-1].split('.')[0]))
+        else:
+            self.img_names = sorted([p for p in os.listdir(img_dir) if p.endswith('.jpg')])
         self.img_paths = [os.path.join(img_dir, p) for p in self.img_names]
         self.img_cache = {}
         self.saved_flag = {}
         self.save_folder = "annotated_imgs" if addi_params is None else addi_params['save_folder']
+        if not os.path.exists(self.save_folder):
+            os.makedirs(self.save_folder, exist_ok=True)
         self.save_paths = [os.path.join(self.save_folder, p) for p in self.img_names]
         if not addi_params:
             self.img_index = 0
@@ -56,8 +66,6 @@ class ImageAnnotator():
         self.drawing = False
         # watch mode
         self.watch_mode = False
-        # single image mode: if enabled, press 'S' will save current image and exit.
-        self.single_img_mode = False if not addi_params else addi_params['single_img_mode']
         # save option
         self.dirty = False
         cv2.namedWindow(self.unique_name, cv2.WINDOW_NORMAL)

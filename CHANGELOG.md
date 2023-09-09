@@ -8,7 +8,8 @@
 
 ## BUGS
 
-
+- 打开comment不编辑直接关闭时没有触发InputComment(Fixed)
+- 在single img mode下对图片按照tick排序(Fixed)
 
 ## Fixed
 
