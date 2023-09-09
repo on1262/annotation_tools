@@ -76,6 +76,9 @@ class ImageAnnotator():
             win_scale = self.conf['init_resize']['macOS']
         wh, ww = round(win_scale * 1080), round(win_scale * 1920)
         cv2.resizeWindow(self.unique_name, ww, wh)
+        if len(self.img_names) == 0:
+            print('没有找到任何图片, 自动退出')
+            return
         self.init_img(self.img_index)
         self.main_loop()
 
