@@ -40,9 +40,8 @@ import vlc
 import shutil 
 import subprocess
 import os
-from os.path import basename, expanduser, isfile, exists, join as joined
+from os.path import basename, exists, join as joined
 import sys
-import math
 from configs import GBL_CONF, isWin, isMacOS
 import numpy as np
 import re, csv
@@ -51,6 +50,8 @@ from image_annotation import ImageAnnotator, GetCommentImg
 if isWin:
     import win32file
     def is_occupied(file_name):
+        if not exists(file_name):
+            return False
         try:
             vHandle = win32file.CreateFile(file_name, win32file.GENERIC_READ, 0, None, win32file.OPEN_EXISTING, win32file.      FILE_ATTRIBUTE_NORMAL, None)
             return int(vHandle) == win32file.INVALID_HANDLE_VALUE
@@ -70,11 +71,19 @@ class AnnotationData():
         return self._dirty
     
     def clear(self):
+        self.load_path = None
         self.data = {}
         self.sorted_keys = []
         self._dirty = False
 
+    def reload(self):
+        if self.load_path is not None:
+            self.load_data(self.load_path)
+        else:
+            print('No csv file loaded')
+    
     def load_data(self, csv_path):
+        self.load_path = csv_path
         self.data = {}
         videoname = os.path.split(csv_path)[-1][:-4] + '.mp4'
         with open(csv_path, 'r', encoding='utf-8') as f:
@@ -87,7 +96,8 @@ class AnnotationData():
                     'region_count': row['region_count'],
                     'sample_attr': row['sample_attr'],
                     'frame_attr': row['frame_attr'],
-                    'comment': row['comment']
+                    'comment': row['comment'],
+                    'anchors': row['anchors']
                 }
         self.sorted_keys = sorted(list(self.data.keys()))
         self._dirty = False
@@ -101,7 +111,7 @@ class AnnotationData():
             return
         with open(csv_path, 'w', encoding='utf-8', newline='') as f:
             writer = csv.writer(f)
-            writer.writerow(['tick', 'type', 'videoname', 'img_name', 'region_count', 'sample_attr', 'frame_attr', 'comment'])
+            writer.writerow(['tick', 'type', 'videoname', 'img_name', 'region_count', 'sample_attr', 'frame_attr', 'comment', 'anchors'])
             for tick in sorted(self.data.keys()):
                 writer.writerow([
                     tick, 
@@ -111,7 +121,8 @@ class AnnotationData():
                     self.data[tick]['region_count'] if self.data[tick].get('region_count') else '', 
                     self.data[tick]['sample_attr'] if self.data[tick].get('sample_attr') else '', 
                     self.data[tick]['frame_attr'] if self.data[tick].get('frame_attr') else '',
-                    self.data[tick]['comment'] if self.data[tick].get('comment') else ''
+                    self.data[tick]['comment'] if self.data[tick].get('comment') else '',
+                    self.data[tick]['anchors'] if self.data[tick].get('anchors') else ''
                 ])
         
         self._dirty = False
@@ -494,8 +505,8 @@ class VideoAnnotator(wx.Frame):
         self.SetMinSize((350, 300))
 
         # finally create the timer, which updates the timeslider
-        self.timer = wx.Timer(self)
-        self.Bind(wx.EVT_TIMER, self.OnSliderTimer, self.timer)
+        self.slider_timer = wx.Timer(self)
+        self.Bind(wx.EVT_TIMER, self.OnSliderTimer, self.slider_timer)
 
         # image annotating flag
         self.img_annotating = False
@@ -561,8 +572,12 @@ class VideoAnnotator(wx.Frame):
     def ExportAnnotations(self, evt):
         # export all annotations to output folder
         # first, save current annotation
-        file_list = sorted(os.listdir('video_annotation')) # not include export folder
         self.AskSavingAnnotation(joined('video_annotation', self.video_names[self.video_idx].replace('.mp4', '.csv')))
+        # detect all annotations
+        file_list = []
+        for f in sorted(os.listdir('video_annotation')):
+            if f.endswith('.csv'):
+                file_list.append(f)
         # create progress dialog
         dlg = wx.ProgressDialog("Exporting Annotations", "Please wait...", 
             maximum=len(file_list), 
@@ -582,33 +597,31 @@ class VideoAnnotator(wx.Frame):
         os.makedirs(joined(output_folder, 'annotated_imgs'), exist_ok=True)
         # create combined csv file:
         combined_csv_path = joined(output_folder, 'combined_data.csv')
-        if isWin and exists(combined_csv_path) and is_occupied(combined_csv_path):
+        if isWin and is_occupied(combined_csv_path):
             # create a dialog
-            err_dlg = wx.MessageDialog(None, f'{combined_csv_path}被另一个程序打开, 无法保存', 'Error', wx.OK | wx.ICON_ERROR)
-            err_dlg.ShowModal()
+            self.errorDialog(f'{combined_csv_path}被另一个程序打开, 无法保存')
             dlg.Update(len(file_list), 'Error')
             return
         with open(combined_csv_path, 'w', encoding='utf-8', newline='') as fp:
             writer = csv.writer(fp)
-            writer.writerow(['tick', 'type', 'videoname', 'img_name', 'region_count', 'sample_attr', 'frame_attr', 'comment'])
+            writer.writerow(['tick', 'type', 'videoname', 'img_name', 'region_count', 'sample_attr', 'frame_attr', 'comment', 'anchors'])
             # copy all annotations and images
             for idx, csv_name in enumerate(file_list):
-                if csv_name.endswith('.csv'):
-                    dlg.Update(idx, 'Exporting ' + csv_name)
-                    csv_path = joined('video_annotation', csv_name)
-                    with open(csv_path, 'r', encoding='utf-8') as fc:
-                        reader = csv.DictReader(fc)
-                        for row in reader:
-                            if row['type'] == 'image':
-                                img_path = joined('video_output', row['videoname'], 'origin_imgs', row['img_name'])
-                                saved_img_path = joined('video_output', row['videoname'], 'annotated_imgs', row['img_name'])
-                                if isMacOS:
-                                    subprocess.call(['cp', img_path, joined(output_folder, 'origin_imgs', row['img_name'])])
-                                    subprocess.call(['cp', saved_img_path, joined(output_folder, 'annotated_imgs', row['img_name'])])
-                                else:
-                                    shutil.copy(img_path, joined(output_folder, 'origin_imgs', row['img_name']))
-                                    shutil.copy(saved_img_path, joined(output_folder, 'annotated_imgs', row['img_name']))
-                            writer.writerow([v for k, v in row.items()])
+                dlg.Update(idx, 'Exporting ' + csv_name)
+                csv_path = joined('video_annotation', csv_name)
+                with open(csv_path, 'r', encoding='utf-8') as fc:
+                    reader = csv.DictReader(fc)
+                    for row in reader:
+                        if row['type'] == 'image':
+                            img_path = joined('video_output', row['videoname'], 'origin_imgs', row['img_name'])
+                            saved_img_path = joined('video_output', row['videoname'], 'annotated_imgs', row['img_name'])
+                            if isMacOS:
+                                subprocess.call(['cp', img_path, joined(output_folder, 'origin_imgs', row['img_name'])])
+                                subprocess.call(['cp', saved_img_path, joined(output_folder, 'annotated_imgs', row['img_name'])])
+                            else:
+                                shutil.copy(img_path, joined(output_folder, 'origin_imgs', row['img_name']))
+                                shutil.copy(saved_img_path, joined(output_folder, 'annotated_imgs', row['img_name']))
+                        writer.writerow([v for k, v in row.items()])
         dlg.Update(len(file_list), 'Done')
 
     def GetSnapshoot(self, out_path):
@@ -627,14 +640,17 @@ class VideoAnnotator(wx.Frame):
                 annotated_path = joined('video_output', self.video_names[self.video_idx], 'annotated_imgs', 
                     str.split(self.video_names[self.video_idx], '.')[0] + '@' + str(self.player.get_time()) + '.jpg')
                 comment_out_path = joined('video_cache', str.split(self.video_names[self.video_idx], '.')[0] + '@' + str(self.player.get_time()) + '.jpg')
-                if exists(annotated_path) and (not exists(comment_out_path)): # create comment image if cache is clear
-                    GetCommentImg(annotated_path, comment_out_path)
+                if exists(comment_out_path): # flush anchors
+                    os.remove(comment_out_path)
+                if exists(annotated_path): # comment only mode will not trigger image
+                    _, anchors = GetCommentImg(annotated_path, comment_out_path)
+                    self.comment_info = {'anchors': anchors}
                 if exists(comment_out_path):
                     self.comment_img_path = comment_out_path
                     self.videopanel.Hide()
                     self.commentpanel.SetSize(self.videopanel.GetSize())
                     self.commentpanel.Show()
-                else:
+                else: # no image, comment only
                     self.comment_img_path = None
                 if isMacOS:
                     self.comment.SetEditable(True)
@@ -702,15 +718,15 @@ class VideoAnnotator(wx.Frame):
             })
             # create img for comment
             if exists(comment_img_path):
-                n_region = GetCommentImg(comment_img_path, out_path)
+                n_region, anchors = GetCommentImg(comment_img_path, out_path)
                 # register annotation
-                # ['tick', 'type', 'videoname', 'img_name', 'region_count', 'sample_attr', 'frame_attr']
                 reg_dict = {
                     'tick': self.player.get_time(),
                     'type': 'image',
                     'video_name': self.video_names[self.video_idx],
                     'img_name': img_name,
-                    'region_count':n_region
+                    'region_count':n_region,
+                    'anchors': anchors
                 }
                 VIDEO_ANNO.register(reg_dict)
 
@@ -731,8 +747,6 @@ class VideoAnnotator(wx.Frame):
 
     def OnFinishComment(self, evt):
         # register annotation
-        # TODO add annotation check
-        # ['tick', 'type', 'videoname', 'img_name', 'region_count', 'sample_attr', 'frame_attr', 'comment']
         if self.comment_info is not None:
             reg_dict = {
                 'tick': self.player.get_time(),
@@ -740,6 +754,9 @@ class VideoAnnotator(wx.Frame):
                 'video_name': self.video_names[self.video_idx],
                 'comment': self.comment_info['comment']
             }
+            if 'anchors' in self.comment_info: # anchor will not appear in comment only mode
+                reg_dict['anchors'] = self.comment_info['anchors']
+            
             if 'fields' in self.comment_info:
                 sample_attr = []
                 for s in self.comment_info['fields']:
@@ -759,6 +776,7 @@ class VideoAnnotator(wx.Frame):
         else:
             self.comment.Disable()
         self.comment_info = None
+        self.videopanel.SetFocus()
     
     def OnInputComment(self, evt):
         # run regex
@@ -776,11 +794,14 @@ class VideoAnnotator(wx.Frame):
                     wx.TextAttr(wx.Colour(113, 113, 113), wx.Colour(200, 200, 200), font=wx.Font(14, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)))
         # update comment
         unmatched = ' '.join([s for s in spt if (s not in result) and (s.strip() != '')])
-        self.comment_info = {
+        comment_info = {
             'comment': str.strip(input_str), # original comment
             'fields': result,
-            'unmatched':  str.strip(unmatched)
+            'unmatched':  str.strip(unmatched),
         }
+        if self.comment_info and 'anchors' in self.comment_info:
+            comment_info['anchors'] = self.comment_info['anchors']
+        self.comment_info = comment_info
     
     def AskSavingAnnotation(self, csv_path):
         # ask if user wants to save annotation
@@ -793,6 +814,7 @@ class VideoAnnotator(wx.Frame):
             elif result == wx.ID_CANCEL:
                 return False
             elif result == wx.ID_NO:
+                VIDEO_ANNO.reload()
                 return True
         else:
             return True
@@ -853,7 +875,7 @@ class VideoAnnotator(wx.Frame):
             if flag:
                 self.errorDialog("Can not play")
             else:
-                self.timer.Start(100)  # XXX millisecs
+                self.slider_timer.Start(100)  # XXX millisecs
                 self.play.Disable()
                 self.pause.Enable()
                 self.stop.Enable()
@@ -863,7 +885,7 @@ class VideoAnnotator(wx.Frame):
                 self.comment.SetValue('')
 
     def UpdateComment(self):
-        # update comment
+        # update comment, SetValue will trigger OnInputComment
         query_result = VIDEO_ANNO.query_tick(self.player.get_time())
         if query_result is not None:
             if 'comment' in query_result:
@@ -876,7 +898,7 @@ class VideoAnnotator(wx.Frame):
     def OnVideoLeftClick(self, evt):
         if self.selecting:
             self.selecting = False
-            self.select_flush_timer.Stop()
+            self.select_flush_timer.Stop() # this line cause a bug
             self.selectframe.OnHide()
             self.UpdateComment()
             self.videopanel.SetFocus()
@@ -884,7 +906,7 @@ class VideoAnnotator(wx.Frame):
             self.selecting = True
             if self.player.is_playing():
                 self.OnPause(None)
-            self.select_flush_timer.Start(100)
+            self.select_flush_timer.Start(200)
             self.mouse_tick = self.player.get_time() # initial mouse tick
             self.selectframe.OnShow(evt.GetPosition(), self.player.get_time())
 
@@ -895,7 +917,8 @@ class VideoAnnotator(wx.Frame):
         self.mouse_tick = max(0, min(self.timeslider.GetMax(), new_tick))
     
     def OnSelectFlushTimer(self, evt):
-        if self.mouse_tick < self.timeslider.GetMax():
+        # NOTE New request coming up will block decoder
+        if self.mouse_tick < self.timeslider.GetMax() and self.mouse_tick != self.player.get_time():
             self.player.set_time(self.mouse_tick)
             self.timeslider.SetValue(self.mouse_tick)
             self.SetTimeLabel(self.mouse_tick)
@@ -937,7 +960,7 @@ class VideoAnnotator(wx.Frame):
         self.timeslider.SetValue(0)
         self.time_label.SetLabel('00:00:00')
         self.comment.SetValue('')
-        self.timer.Stop()
+        self.slider_timer.Stop()
         self.play.Enable()
         self.pause.Disable()
         self.stop.Disable()
@@ -948,6 +971,10 @@ class VideoAnnotator(wx.Frame):
         """Update the time slider according to the current movie time.
         """
         if self.seeking or self.selecting:
+            return
+        if self.player.get_state() == vlc.State.Ended:
+            self.slider_timer.Stop()
+            self.OnStop(None)
             return
         # since the self.player.get_length can change while playing,
         # re-set the timeslider to the correct range.
@@ -978,12 +1005,12 @@ class VideoAnnotator(wx.Frame):
         self.UpdateComment()
         if not self.conf['pause_after_seek']:
             self.OnPlay(None)
+        self.videopanel.SetFocus() # necessary
 
     def errorDialog(self, errormessage):
         """Display a simple error dialog.
         """
-        edialog = wx.MessageDialog(self, errormessage, 'Error', wx.OK|
-                                                                wx.ICON_ERROR)
+        edialog = wx.MessageDialog(self, errormessage, 'Error', wx.OK | wx.ICON_ERROR)
         edialog.ShowModal()
 
 

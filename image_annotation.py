@@ -10,6 +10,7 @@ def GetCommentImg(img_path, out_path):
     target_map = (img[:,:,0] > 240) * (img[:,:,1] < 10) * (img[:,:,2] < 10) # WH
     target_map = target_map.astype('int')*255
     ret, labels = cv2.connectedComponents(target_map.astype('uint8'), connectivity=4)
+    anchors = []
     for label in range(1, ret):
         random_color = [random.randint(0, 240), random.randint(100, 240), random.randint(0, 100)] # BGR
         reverse_color = [255 - c for c in random_color]
@@ -18,9 +19,10 @@ def GetCommentImg(img_path, out_path):
         # add number
         x, y = (labels == label).nonzero()
         x, y = round(x.mean()), round(y.mean())
+        anchors.append((x, y))
         img = cv2.putText(img, str(label), (y, x), cv2.FONT_HERSHEY_SIMPLEX, 3, reverse_color, 6)
     cv2.imwrite(out_path, img, [cv2.IMWRITE_JPEG_QUALITY, 100])
-    return ret - 1 # number of neuros
+    return ret - 1, anchors # number of neuros
 
 
 class ImageAnnotator():

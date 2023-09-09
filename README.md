@@ -4,8 +4,12 @@
 
 首先需要安装Aanaconda3和Python环境：
 1. 选择合适的操作系统，下载Anaconda3: https://www.anaconda.com/download#downloads 国内镜像站为 https://mirrors.tuna.tsinghua.edu.cn/anaconda/archive/
-2. 安装Anaconda3，安装过程中注意勾选“Add Anaconda to my PATH environment variable”选项
-3. (视频标注)安装VLC Media Player的对应操作系统版本: https://www.videolan.org/vlc/
+2. 在国内配置清华源: https://mirrors.tuna.tsinghua.edu.cn/help/anaconda/
+3. 安装Anaconda3，之后将`Anaconda3/Scripts`添加到环境变量`PATH`中
+4. 在Powershell中运行`conda init powershell`, 重启powershell
+5. 解决一些报错: https://blog.csdn.net/qq_29873023/article/details/104005618
+6. (视频标注)安装VLC Media Player的对应操作系统版本: https://www.videolan.org/vlc/
+7. (视频标注)安装ffmpeg: `conda install ffmpeg -c conda-forge`
 
 之后需要安装依赖包：
 1. 打开Anaconda Prompt，创建虚拟环境：`conda create -n anno python=3.11`
@@ -121,6 +125,9 @@ Selector中被选中的帧被`黄色`框标识，若显示`绿色`，则表示�
 - 一个`帧属性片段`的起始是`frm`（代表frame），紧接着是一个@字符，之后是若干可选的属性，与独立标注区域片段的属性类似但不同。帧属性用于描述手术的不同阶段。
 - 当上述的两个片段被检出时，会被标注为绿色，可以避免标注时的错误。
 - 注意：这种语法检查并不严格，只是为了避免拼写错误。
+
+**在windows系统下实时拖拽进度条可能会产生滞后或卡顿, 通常在1秒内就能完成同步**
+
 
 ## 标注事项
 
